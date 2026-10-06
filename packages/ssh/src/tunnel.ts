@@ -1138,12 +1138,14 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
         }),
     ),
   );
+  // No ExitOnForwardFailure: ssh also applies the host's LocalForward and
+  // DynamicForward from the user's ssh_config, which fail whenever another
+  // session to that host holds those ports, and ClearAllForwardings would
+  // drop our -L with them. The HTTP readiness check below proves our forward.
   const args = [
     ...baseSshArgs(input.resolvedTarget, {
       batchMode: input.authOptions.batchMode ?? "no",
     }),
-    "-o",
-    "ExitOnForwardFailure=yes",
     "-o",
     "ControlMaster=no",
     "-o",
