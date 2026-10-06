@@ -6,6 +6,11 @@ import {
   type McpToolPresentation,
 } from "../../provider/CodexToolPresentation.ts";
 import {
+  cuaCallContext,
+  mcpToolPresentation as sharedMcpToolPresentation,
+} from "../../provider/McpToolPresentation.ts";
+import { isCuaServerName } from "../../cua/cuaToolPresentation.ts";
+import {
   makeCodexTurnTokenUsageState,
   getCodexTurnAccumulator,
   accumulateCodexTurnTokenUsage,
@@ -481,6 +486,8 @@ function codexDynamicToolOutput(
 
 export function projectCodexDynamicToolItem(
   item: CodexDynamicToolItem,
+  /** The app thread; Cua Driver calls resolve their app through it. */
+  threadId: ThreadId | null = null,
 ): CodexDynamicToolProjection {
   const output =
     item.type === "mcpToolCall" ? codexMcpToolOutput(item) : codexDynamicToolOutput(item);
@@ -488,14 +495,31 @@ export function projectCodexDynamicToolItem(
     item.type === "mcpToolCall"
       ? `${item.server}.${item.tool}`
       : [trimText(item.namespace), item.tool].filter(Boolean).join(".");
-  const presentation = item.type === "mcpToolCall" ? mcpToolPresentation(item) : {};
+  const status = codexItemStatus(item.status).turnItem;
+  const presentation =
+    item.type !== "mcpToolCall"
+      ? {}
+      : isCuaServerName(item.server)
+        ? sharedMcpToolPresentation({
+            serverName: item.server,
+            toolName: item.tool,
+            ...cuaCallContext({
+              serverName: item.server,
+              toolName: item.tool,
+              threadId,
+              status,
+              args: item.arguments,
+              result: item.result,
+            }),
+          })
+        : mcpToolPresentation(item);
   const title = dynamicToolTitle(toolName, item.arguments) ?? presentation.title;
   const projection: CodexDynamicToolProjection = {
     ...presentation,
     toolName,
     ...(title ? { title } : {}),
     input: item.arguments,
-    status: codexItemStatus(item.status).turnItem,
+    status,
   };
   return output === undefined ? projection : { ...projection, output };
 }
@@ -3534,7 +3558,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               nativeItemId: item.id,
             });
             const { ordinal, startedAt } = yield* resolveItemPosition(context, item.id);
-            const projection = projectCodexDynamicToolItem(item);
+            const projection = projectCodexDynamicToolItem(item, context.projectionThreadId);
             const node: OrchestrationV2ExecutionNode = {
               id: nodeId,
               threadId: context.projectionThreadId,
