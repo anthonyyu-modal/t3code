@@ -240,8 +240,9 @@ export const make = Effect.fn("SshDeviceHost.make")(function* (
           [
             ...baseSshArgs(targetFor(config), { batchMode: "yes" }),
             ...identityArgs(config),
-            "-o",
-            "ExitOnForwardFailure=yes",
+            // No ExitOnForwardFailure: it also covers the LocalForwards in the
+            // user's ssh_config, which fail while another session holds their
+            // ports. The readiness waits below prove these two forwards.
             "-o",
             "ServerAliveInterval=10",
             "-o",
