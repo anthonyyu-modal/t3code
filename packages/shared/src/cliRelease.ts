@@ -1,4 +1,8 @@
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+// Fork: runtimes, remotes, and self-updates install the archives this fork's
+// fork-release workflow publishes, which carry its patches (the official ones
+// do not exec on Oracle UEK kernels). The desktop update feed follows the
+// repository the build ran in on its own.
+const CLI_RELEASE_REPOSITORY = "anthonyyu-modal/t3code";
 export const CLI_RELEASES_PAGE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases`;
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
