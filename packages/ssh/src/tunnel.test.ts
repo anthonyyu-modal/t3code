@@ -731,17 +731,22 @@ describe("archive runner script", () => {
   // A fake "executable" that answers --version, packed the way the release
   // workflow packs the real archive: one top-level directory named after the
   // stem, checksummed in SHA256SUMS.
-  const makeMirror = Effect.fn("makeMirror")(function* (root: string) {
+  const makeMirror = Effect.fn("makeMirror")(function* (
+    root: string,
+    executable = `#!/bin/sh\necho t3 v${archiveVersion}\n`,
+  ) {
+    const fs = yield* FileSystem.FileSystem;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const platform = hostPlatform === "darwin" ? "darwin" : "linux";
     const arch = hostArch === "arm64" ? "arm64" : "x64";
     const stem = `t3-${archiveVersion}-${platform}-${arch}`;
     const stage = `${root}/stage/${stem}`;
     const release = `${root}/mirror/v${archiveVersion}`;
+    yield* fs.makeDirectory(stage, { recursive: true });
+    yield* fs.writeFileString(`${stage}/t3`, executable);
     const script = [
       "set -eu",
-      `mkdir -p '${stage}' '${release}'`,
-      `printf '#!/bin/sh\\necho t3 v${archiveVersion}\\n' > '${stage}/t3'`,
+      `mkdir -p '${release}'`,
       `chmod +x '${stage}/t3'`,
       `tar -czf '${release}/${stem}.tar.gz' -C '${root}/stage' '${stem}'`,
       `cd '${release}' && (sha256sum '${stem}.tar.gz' 2>/dev/null || shasum -a 256 '${stem}.tar.gz') > SHA256SUMS`,
@@ -795,6 +800,37 @@ describe("archive runner script", () => {
         const afterUnowned = yield* runRunner(home, runner);
         assert.equal(afterUnowned.exitCode, 0, afterUnowned.stderr);
         assert.isFalse(yield* fs.exists(lock));
+      }).pipe(Effect.provide(NodeServices.layer)),
+    60_000,
+  );
+
+  it.effect.skipIf(windowsHost)(
+    "reports why a downloaded executable does not run, and installs nothing",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-archive-runner-" });
+        const releaseBaseUrl = yield* makeMirror(
+          root,
+          "#!/bin/sh\necho 't3: cannot execute binary file: Exec format error' >&2\nexit 126\n",
+        );
+        const runner = `${root}/run-t3.sh`;
+        yield* fs.writeFileString(
+          runner,
+          SshTunnel.buildRemoteT3RunnerScript({ archiveVersion, releaseBaseUrl }),
+        );
+        const home = `${root}/home`;
+        yield* fs.makeDirectory(home, { recursive: true });
+
+        const result = yield* runRunner(home, runner);
+
+        assert.equal(result.exitCode, 1);
+        assert.include(
+          result.stderr,
+          `The t3 ${archiveVersion} executable does not run on this host`,
+        );
+        assert.include(result.stderr, "Exec format error");
+        assert.isFalse(yield* fs.exists(`${home}/.t3/runtime/versions/${archiveVersion}`));
       }).pipe(Effect.provide(NodeServices.layer)),
     60_000,
   );
