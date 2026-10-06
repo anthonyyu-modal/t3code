@@ -80,6 +80,15 @@ export class CliArchiveInputMissingError extends Schema.TaggedError<CliArchiveIn
   }
 }
 
+export class CliArchiveExecutableLayoutError extends Schema.TaggedError<CliArchiveExecutableLayoutError>()(
+  "CliArchiveExecutableLayoutError",
+  { executablePath: Schema.String, reason: Schema.String },
+) {
+  override get message(): string {
+    return `Unexpected layout in ${this.executablePath}: ${this.reason}.`;
+  }
+}
+
 export function cliArchivePlatformKey(platform: BuildPlatform, arch: BuildArch): string {
   const nodePlatform = platform === "mac" ? "darwin" : platform === "win" ? "win32" : "linux";
   return `${nodePlatform}-${arch}`;
@@ -408,6 +417,101 @@ const signWindowsExecutable = Effect.fn("signWindowsExecutable")(function* (
   yield* Effect.log("[cli-archive] Signed t3.exe (Azure Trusted Signing).");
 });
 
+const ELF_ET_EXEC = 2;
+const ELF_PT_NOTE = 4;
+const ELF_PT_PHDR = 6;
+const ELF64_PHDR_SIZE = 56;
+const UEK_MAX_NOTE_SEGMENT_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Oracle UEK kernels refuse (ENOEXEC) an ELF whose last PT_NOTE is over 4 MiB, and --build-sea
+ * grows node's PT_NOTE with the SEA blob. Split it, node's notes last (node scans every PT_NOTE
+ * for the blob); the blob's PT_NOTE takes the PT_PHDR slot, which non-PIE executables don't use.
+ * Mutates `bytes`; returns the blob segment's size, or null when the last PT_NOTE is in bounds.
+ */
+export function splitSeaBlobNoteSegment(bytes: Uint8Array): number | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint32(0) !== 0x7f454c46 || bytes[4] !== 2 || bytes[5] !== 1) {
+    throw new Error("expected a 64-bit little-endian ELF executable");
+  }
+  if (view.getUint16(0x36, true) !== ELF64_PHDR_SIZE) {
+    throw new Error("unexpected program header size");
+  }
+  const phoff = Number(view.getBigUint64(0x20, true));
+  const phnum = view.getUint16(0x38, true);
+  // Elf64_Phdr: p_type +0, p_offset +8, p_vaddr +16, p_paddr +24, p_filesz +32, p_memsz +40.
+  const header = (index: number) => phoff + index * ELF64_PHDR_SIZE;
+  const typeOf = (index: number) => view.getUint32(header(index), true);
+  const u64 = (offset: number) => Number(view.getBigUint64(offset, true));
+  const setU64 = (offset: number, value: number) => view.setBigUint64(offset, BigInt(value), true);
+  const indexes = Array.from({ length: phnum }, (_, index) => index);
+
+  const note = indexes.findLast((index) => typeOf(index) === ELF_PT_NOTE);
+  if (note === undefined || u64(header(note) + 32) <= UEK_MAX_NOTE_SEGMENT_BYTES) {
+    return null;
+  }
+  const noteHeader = header(note);
+
+  // Notes are a 12-byte header followed by a name and a descriptor, each
+  // padded to 4 bytes.
+  const segmentStart = u64(noteHeader + 8);
+  const segmentEnd = segmentStart + u64(noteHeader + 32);
+  const padded = (size: number) => Math.ceil(size / 4) * 4;
+  let blobStart = segmentStart;
+  while (blobStart + 12 <= segmentEnd) {
+    const nameSize = view.getUint32(blobStart, true);
+    const name = new TextDecoder().decode(
+      bytes.subarray(blobStart + 12, blobStart + 12 + nameSize),
+    );
+    if (name === "NODE_SEA_BLOB\0") break;
+    blobStart += 12 + padded(nameSize) + padded(view.getUint32(blobStart + 4, true));
+  }
+  const prefixSize = blobStart - segmentStart;
+  if (blobStart + 12 > segmentEnd || prefixSize === 0 || prefixSize > UEK_MAX_NOTE_SEGMENT_BYTES) {
+    throw new Error("the last PT_NOTE does not hold node's notes followed by the SEA blob");
+  }
+
+  if (view.getUint16(0x10, true) !== ELF_ET_EXEC) {
+    throw new Error("expected a non-PIE executable, whose PT_PHDR can be reused");
+  }
+  const phdr = indexes.find((index) => typeOf(index) === ELF_PT_PHDR);
+  if (phdr === undefined) throw new Error("no PT_PHDR entry to reuse");
+
+  const blobSize = segmentEnd - blobStart;
+  const [blobSlot, notesSlot] = phdr < note ? [phdr, note] : [note, phdr];
+  // A copy, not `bytes.slice`: on a Buffer that returns a view into the file.
+  const original = Uint8Array.from(bytes.subarray(noteHeader, noteHeader + ELF64_PHDR_SIZE));
+  const originalView = new DataView(original.buffer);
+  const originalU64 = (field: number) => Number(originalView.getBigUint64(field, true));
+  bytes.set(original, header(blobSlot));
+  bytes.set(original, header(notesSlot));
+  for (const field of [8, 16, 24])
+    setU64(header(blobSlot) + field, originalU64(field) + prefixSize);
+  for (const field of [32, 40]) setU64(header(blobSlot) + field, blobSize);
+  for (const field of [32, 40]) setU64(header(notesSlot) + field, prefixSize);
+  return blobSize;
+}
+
+const splitLinuxSeaNoteSegment = Effect.fn("splitLinuxSeaNoteSegment")(function* (
+  executablePath: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const bytes = yield* fs.readFile(executablePath);
+  const blobSize = yield* Effect.try({
+    try: () => splitSeaBlobNoteSegment(bytes),
+    catch: (cause) =>
+      new CliArchiveExecutableLayoutError({
+        executablePath,
+        reason: cause instanceof Error ? cause.message : String(cause),
+      }),
+  });
+  if (blobSize === null) return;
+  yield* fs.writeFile(executablePath, bytes);
+  yield* Effect.log(
+    `[cli-archive] Gave the SEA blob its own PT_NOTE (${String(blobSize)} bytes) so UEK kernels can exec t3.`,
+  );
+});
+
 const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   readonly platform: BuildPlatform;
   readonly arch: BuildArch;
@@ -477,6 +581,8 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
     yield* signMacArchiveContents({ repoRoot, contentDir, executablePath });
   } else if (input.platform === "win") {
     yield* signWindowsExecutable(executablePath);
+  } else {
+    yield* splitLinuxSeaNoteSegment(executablePath);
   }
   if (input.platform !== "win") {
     yield* fs.chmod(executablePath, 0o755);
