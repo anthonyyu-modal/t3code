@@ -1529,12 +1529,14 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
         }),
     ),
   );
+  // No ExitOnForwardFailure on either path: ssh (a mux client too) also requests
+  // the host's LocalForward/DynamicForward from ssh_config, which fail while another
+  // session holds those ports, and ClearAllForwardings would drop our -L with them.
+  // The HTTP readiness check below proves our forward.
   const directArgs = [
     ...baseSshArgs(input.resolvedTarget, {
       batchMode: input.authOptions.batchMode ?? "no",
     }),
-    "-o",
-    "ExitOnForwardFailure=yes",
     "-o",
     "ControlMaster=no",
     "-o",
@@ -1564,8 +1566,6 @@ const startSshTunnel = Effect.fn("ssh/tunnel.startSshTunnel")(function* (input: 
           args: [
             ...baseSshArgs(input.resolvedTarget, { batchMode: "yes" }),
             ...controlMasterArgs(controlPath),
-            "-o",
-            "ExitOnForwardFailure=yes",
             "-o",
             "ControlMaster=no",
             "-T",
