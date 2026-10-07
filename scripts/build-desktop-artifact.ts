@@ -2802,7 +2802,12 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   // Missing publish config infers a GitHub feed from tokens; staging has no repository, so manifest generation would crash.
   buildConfig.publish = null;
   if (!isDesktopPreviewVersion(version)) {
-    const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
+    // Fork: Squirrel.Mac installs an update only when its signature satisfies
+    // the running app's designated requirement, which an ad hoc build's cdhash
+    // never does, so an unsigned macOS build ships without an update feed
+    // rather than one that downloads updates it cannot install.
+    const publishConfig =
+      platform === "mac" && !signed ? undefined : yield* resolveGitHubPublishConfig(updateChannel);
     if (publishConfig) {
       buildConfig.publish = [publishConfig];
     } else if (mockUpdates) {
