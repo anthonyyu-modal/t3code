@@ -8,7 +8,8 @@ Upstream T3 Code plus a small patch stack, released from this repository.
 - **Remote install errors say why.** The SSH runner reports `t3 --version` output and `uname` when a downloaded binary does not run.
 - **SSH tunnels ignore failing `LocalForward`s** from `~/.ssh/config` (no `ExitOnForwardFailure`).
 - **Archives come from this fork.** `CLI_RELEASE_REPOSITORY` in `packages/shared/src/cliRelease.ts` points here, so SSH remotes and runtimes install this fork's patched archives.
-- **`fork-release.yml`** builds the macOS arm64 app and the macOS arm64 + Linux x64 CLI archives on GitHub-hosted runners and publishes a release. Every other workflow is disabled in this repository.
+- **Unsigned macOS builds have no update feed** (`scripts/build-desktop-artifact.ts`): Squirrel.Mac cannot install an ad hoc signed update.
+- **`fork-release.yml`** builds the macOS arm64 app and the macOS arm64 + Linux x64 CLI archives on GitHub-hosted runners and publishes a release on the nightly train. Every other workflow is disabled in this repository.
 
 ## Release
 
@@ -16,7 +17,7 @@ Upstream T3 Code plus a small patch stack, released from this repository.
 gh workflow run fork-release.yml -R anthonyyu-modal/t3code
 ```
 
-Builds are unsigned (ad hoc) and use the `-preview.` version train, so the app has no update feed: rerun the workflow and reinstall to update.
+Builds are nightly versions (`T3 Code (Nightly)`, Orchestrator V2, nightly-only settings) but unsigned (ad hoc), so the app never offers updates: rerun the workflow and reinstall to update.
 
 ## Install (macOS)
 
@@ -24,7 +25,7 @@ Builds are unsigned (ad hoc) and use the `-preview.` version train, so the app h
 gh release download -R anthonyyu-modal/t3code -p '*arm64.dmg' -D /tmp/t3-fork --clobber
 ```
 
-Open the .dmg and drag the app to Applications. It installs as `T3 Code.app` (shown as "T3 Code (Alpha)") next to the official Nightly and shares its `~/.t3` data, so run one at a time. If macOS says it is damaged: `xattr -dr com.apple.quarantine "/Applications/T3 Code.app"`.
+Open the .dmg and drag the app to Applications. It installs as `T3 Code (Nightly).app`, replacing the official Nightly, and uses the same `~/.t3` data. If macOS says it is damaged: `xattr -dr com.apple.quarantine "/Applications/T3 Code (Nightly).app"`.
 
 ## Sync with upstream
 
