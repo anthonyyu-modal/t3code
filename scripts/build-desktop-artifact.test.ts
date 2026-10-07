@@ -347,6 +347,16 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "mac",
         "dmg",
         "0.0.33",
+        true,
+        false,
+        undefined,
+        undefined,
+      );
+      // Squirrel.Mac cannot install an ad hoc signed update.
+      const unsignedNightly = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.41-nightly.20260912.1589",
         false,
         false,
         undefined,
@@ -365,6 +375,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.isNull(preview.publish);
       assert.isNull(previewChannel.publish);
+      assert.isNull(unsignedNightly.publish);
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
