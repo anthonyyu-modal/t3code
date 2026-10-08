@@ -29,8 +29,19 @@ Open the .dmg and drag the app to Applications. It installs as `T3 Code (Nightly
 
 ## Sync with upstream
 
+`main` is always the commit the newest upstream nightly was built from, with this fork's commits as one linear stack on top:
+
+- **Base on the newest nightly, not upstream `main`.** Nightlies are what upstream has released; `main` can be ahead of them.
+- **Rebase, never merge.** Fork commits must never sit between upstream commits. New fork commits go on top of the stack.
+- **Drop patches upstream made unnecessary.** On every sync, check each fork commit against what upstream shipped. If upstream fixed the same problem, delete the commit from the stack (skip it in the rebase) instead of keeping or reverting it.
+
 ```bash
-git fetch upstream
-git rebase upstream/main
+git fetch upstream --tags
+nightly=$(gh release list -R pingdotgg/t3code --limit 20 --json tagName \
+  -q '[.[] | select(.tagName | test("-nightly\\."))][0].tagName')
+git rebase --onto "$nightly" "$(git merge-base main upstream/main)" main
 git push --force-with-lease origin main
+gh workflow run fork-release.yml -R anthonyyu-modal/t3code
 ```
+
+If upstream added workflows, disable them here (`gh workflow disable <name> -R anthonyyu-modal/t3code`); only Fork Release and Release desktop build stay enabled.
