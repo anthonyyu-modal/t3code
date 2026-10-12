@@ -6,8 +6,10 @@ import {
   hasDesktopNotifications,
   hasNotificationSound,
   NOTIFICATION_MODE_LABELS,
+  sendTestNotification,
   unlockNotificationAudio,
 } from "../../threadNotifications";
+import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingsRow } from "./settingsLayout";
 import { useSearchableSetting } from "./settingsSearch";
@@ -92,6 +94,38 @@ export function NotificationSettings() {
             ))}
           </SelectPopup>
         </Select>
+      }
+    />
+  );
+}
+
+/** Posts a notification on demand; see `sendTestNotification` for why macOS needs it. */
+export function TestNotificationSettings() {
+  const [message, setMessage] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+
+  return (
+    <SettingsRow
+      {...searchableSetting("test-notification")}
+      description={
+        message ??
+        // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+        "Check that alerts reach you. macOS lists T3 Code in System Settings → Notifications only after it sends one."
+      }
+      control={
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={sending}
+          onClick={async () => {
+            setSending(true);
+            setMessage(await sendTestNotification());
+            setSending(false);
+          }}
+        >
+          {/* oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md) */}
+          {"Send test"}
+        </Button>
       }
     />
   );
