@@ -5,8 +5,10 @@ import {
   hasDesktopNotifications,
   hasNotificationSound,
   NOTIFICATION_MODE_LABELS,
+  sendTestNotification,
   unlockNotificationAudio,
 } from "../../threadNotifications";
+import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
@@ -76,6 +78,39 @@ export function NotificationSettings() {
             ))}
           </SelectPopup>
         </Select>
+      }
+    />
+  );
+}
+
+/** Posts a notification on demand; see `sendTestNotification` for why macOS needs it. */
+export function TestNotificationSettings() {
+  const [message, setMessage] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+
+  return (
+    <SettingsRow
+      {...searchableSetting("test-notification")}
+      description={
+        message ??
+        "Check that alerts reach you. macOS lists T3 Code in System Settings → Notifications only after it sends one."
+      }
+      control={
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={sending}
+          onClick={async () => {
+            setSending(true);
+            try {
+              setMessage(await sendTestNotification());
+            } finally {
+              setSending(false);
+            }
+          }}
+        >
+          Send test
+        </Button>
       }
     />
   );
