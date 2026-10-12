@@ -36,6 +36,43 @@ export function threadNotificationTag(environmentId: EnvironmentId, threadId: Th
   return hash.toString(16).padStart(16, "0");
 }
 
+/**
+ * Posts a notification on demand. macOS lists an app in System Settings →
+ * Notifications only after it posts one, so this is how a fresh install becomes
+ * something the user can allow there. Resolves to a status line for Settings.
+ */
+export async function sendTestNotification(): Promise<string> {
+  if (typeof Notification === "undefined" || !window.isSecureContext) {
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+    return "Notifications need a supported browser over HTTPS, or the desktop app.";
+  }
+  try {
+    const permission =
+      Notification.permission === "default"
+        ? await Notification.requestPermission()
+        : Notification.permission;
+    if (permission !== "granted") {
+      // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+      return "Notifications are blocked. Allow them in your browser or system settings, then send another test.";
+    }
+    const notification = new Notification("Test notification", {
+      body: "Thread alerts from T3 Code look like this.",
+      tag: "test-notification",
+      silent: true,
+    });
+    notification.addEventListener("click", () => {
+      notification.close();
+      window.focus();
+    });
+  } catch {
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+    return "Notifications are unavailable in this browser.";
+  }
+  return window.desktopBridge?.getClientPlatform?.() === "darwin"
+    ? "Test notification sent. If it did not appear, allow T3 Code in System Settings → Notifications."
+    : "Test notification sent. If it did not appear, check your browser and system notification settings.";
+}
+
 let originalFavicon: HTMLLinkElement | undefined;
 let badgeFavicon: HTMLLinkElement | undefined;
 
