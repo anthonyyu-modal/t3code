@@ -393,6 +393,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification sound alert completion input approval desktop"],
   },
   {
+    id: "test-notification",
+    title: "Test notification",
+    to: "/settings/general",
+    searchTerms: ["notification send test macos system settings allow permission"],
+  },
+  {
     id: "in-app-notifications",
     title: "In-app notifications",
     to: "/settings/general",
