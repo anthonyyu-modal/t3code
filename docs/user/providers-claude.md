@@ -57,6 +57,8 @@ history for that message. The cache lasts about an hour on a Claude
 subscription and 5 minutes with an API key, Bedrock, or Vertex. See [commands and skills](./composer.md#commands-and-skills) for using
 composer commands.
 
+To stop offering the chip on a device, turn off **Compact stale Claude threads** in Settings → General.
+
 ## Usage limits
 
 If your Claude subscription runs out of usage mid-turn, the thread shows which
