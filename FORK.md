@@ -8,7 +8,7 @@ Upstream T3 Code plus a small patch stack, released from this repository.
 - **Remote install errors say why.** The SSH runner reports `t3 --version` output and `uname` when a downloaded binary does not run.
 - **SSH tunnels ignore failing `LocalForward`s** from `~/.ssh/config` (no `ExitOnForwardFailure`).
 - **Archives come from this fork.** `CLI_RELEASE_REPOSITORY` in `packages/shared/src/cliRelease.ts` points here, so SSH remotes and runtimes install this fork's patched archives.
-- **Unsigned macOS builds have no update feed** (`scripts/build-desktop-artifact.ts`): Squirrel.Mac cannot install an ad hoc signed update.
+- **Unsigned macOS builds are ad hoc signed and have no update feed** (`scripts/build-desktop-artifact.ts`): macOS refuses notifications from an app whose bundle is not signed, and Squirrel.Mac cannot install an ad hoc signed update.
 - **Settings → General → Test notification** posts a notification on demand: macOS lists an app in System Settings → Notifications only after it posts one.
 - **`fork-release.yml`** builds the macOS arm64 app and the macOS arm64 + Linux x64 CLI archives on GitHub-hosted runners and publishes a release on the nightly train. Every other workflow is disabled in this repository.
 
@@ -26,7 +26,7 @@ Builds are nightly versions (`T3 Code (Nightly)`, Orchestrator V2, nightly-only 
 gh release download -R anthonyyu-modal/t3code -p '*arm64.dmg' -D /tmp/t3-fork --clobber
 ```
 
-Open the .dmg and drag the app to Applications. It installs as `T3 Code (Nightly).app`, replacing the official Nightly, and uses the same `~/.t3` data. If macOS says it is damaged: `xattr -dr com.apple.quarantine "/Applications/T3 Code (Nightly).app"`.
+Open the .dmg and drag the app to Applications. It installs as `T3 Code (Nightly).app`, replacing the official Nightly, and uses the same `~/.t3` data. If macOS refuses to open it (unverified developer, or "damaged"): `xattr -dr com.apple.quarantine "/Applications/T3 Code (Nightly).app"`.
 
 ## Sync with upstream
 
