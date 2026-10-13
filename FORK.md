@@ -10,6 +10,7 @@ Upstream T3 Code plus a small patch stack, released from this repository.
 - **Archives come from this fork.** `CLI_RELEASE_REPOSITORY` in `packages/shared/src/cliRelease.ts` points here, so SSH remotes and runtimes install this fork's patched archives.
 - **Unsigned macOS builds are ad hoc signed and have no update feed** (`scripts/build-desktop-artifact.ts`): macOS refuses notifications from an app whose bundle is not signed, and Squirrel.Mac cannot install an ad hoc signed update.
 - **Settings → General → Test notification** posts a notification on demand: macOS lists an app in System Settings → Notifications only after it posts one.
+- **Settings → General → Compact stale Claude threads** turns off the composer's Compact chip on that device (stored in local storage, not synced settings).
 - **`fork-release.yml`** builds the macOS arm64 app and the macOS arm64 + Linux x64 CLI archives on GitHub-hosted runners and publishes a release on the nightly train. Every other workflow is disabled in this repository.
 
 ## Release
