@@ -2923,6 +2923,12 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         },
       ],
       ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
+      // Fork: without an identity electron-builder leaves only Electron's
+      // linker signature (identifier "Electron", Info.plist unbound), and macOS
+      // then refuses the app's notifications. An ad hoc signature binds the
+      // bundle ID. Hardened runtime is for notarization, and with an ad hoc
+      // signature its library validation can stop the app from launching.
+      ...(signed ? {} : { identity: "-", hardenedRuntime: false }),
       ...(macPasskeySigning
         ? {
             entitlements: macPasskeySigning.entitlementsPath,
