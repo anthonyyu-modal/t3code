@@ -568,6 +568,7 @@ import {
   shouldRefocusComposerOnWindowFocus,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { useResumeCompactionEnabled } from "./settings/ResumeCompactionSettings";
 import { useComposerHandleContext } from "../composerHandleContext";
 import {
   awaitAttachmentUploads,
@@ -4137,6 +4138,7 @@ export default function ChatView(props: ChatViewProps) {
       false,
       Schema.Boolean,
     );
+  const [resumeCompactionEnabled] = useResumeCompactionEnabled();
   const nativeResumeCompactionDismissed = useMemo(
     () =>
       hasDismissedResumeCompaction(
@@ -7367,6 +7369,7 @@ export default function ChatView(props: ChatViewProps) {
     : null;
   const resumeCompactionTokens =
     activeContextWindow &&
+    resumeCompactionEnabled &&
     !resumeCompactionPermanentlyDismissed &&
     !nativeResumeCompactionDismissed &&
     !compactDisabled &&

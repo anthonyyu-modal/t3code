@@ -360,6 +360,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification send test macos system settings allow permission"],
   },
   {
+    id: "resume-compaction",
+    title: "Compact stale Claude threads",
+    to: "/settings/general",
+    searchTerms: ["compact compaction claude context prompt cache tokens chip full history"],
+  },
+  {
     id: "in-app-notifications",
     title: "In-app notifications",
     to: "/settings/general",
