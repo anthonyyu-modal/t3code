@@ -36,6 +36,8 @@ export function threadNotificationTag(environmentId: EnvironmentId, threadId: Th
   return hash.toString(16).padStart(16, "0");
 }
 
+const TEST_NOTIFICATION_SHOW_TIMEOUT_MS = 5000;
+
 /**
  * Posts a notification on demand. macOS lists an app in System Settings →
  * Notifications only after it posts one, so this is how a fresh install becomes
@@ -46,6 +48,7 @@ export async function sendTestNotification(): Promise<string> {
     // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
     return "Notifications need a supported browser over HTTPS, or the desktop app.";
   }
+  let shown: boolean;
   try {
     const permission =
       Notification.permission === "default"
@@ -64,13 +67,34 @@ export async function sendTestNotification(): Promise<string> {
       notification.close();
       window.focus();
     });
+    // Electron reports only success: when macOS refuses a notification the page
+    // gets no error event, so a missing `show` is the failure signal.
+    shown = await new Promise<boolean>((resolve) => {
+      const timeout = window.setTimeout(() => resolve(false), TEST_NOTIFICATION_SHOW_TIMEOUT_MS);
+      const settle = (value: boolean) => () => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      };
+      notification.addEventListener("show", settle(true), { once: true });
+      notification.addEventListener("error", settle(false), { once: true });
+    });
   } catch {
     // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
     return "Notifications are unavailable in this browser.";
   }
-  return window.desktopBridge?.getClientPlatform?.() === "darwin"
-    ? "Test notification sent. If it did not appear, allow T3 Code in System Settings → Notifications."
-    : "Test notification sent. If it did not appear, check your browser and system notification settings.";
+  const mac = window.desktopBridge?.getClientPlatform?.() === "darwin";
+  if (shown) {
+    return mac
+      ? // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+        "Test notification sent. If no banner appeared, choose an alert style for T3 Code in System Settings → Notifications."
+      : // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+        "Test notification sent.";
+  }
+  return mac
+    ? // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+      "macOS did not show the test notification. Allow T3 Code in System Settings → Notifications. If T3 Code is not listed there, this build's code signature is incomplete."
+    : // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+      "The test notification was not shown. Check your browser and system notification settings.";
 }
 
 let originalFavicon: HTMLLinkElement | undefined;
