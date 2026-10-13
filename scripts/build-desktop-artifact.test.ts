@@ -1604,6 +1604,32 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     ),
   );
 
+  it.effect("ad hoc signs unsigned macOS builds without hardened runtime", () =>
+    Effect.gen(function* () {
+      const unsigned = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.2.3-nightly.20260815.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      const signed = yield* createBuildConfig("mac", "dmg", "1.2.3", true, false, undefined, {
+        entitlementsPath: "/tmp/entitlements.mac.plist",
+        provisioningProfilePath: "/tmp/t3code.provisionprofile",
+      });
+
+      const unsignedMac = unsigned.mac as Record<string, unknown>;
+      assert.equal(unsignedMac.identity, "-");
+      assert.equal(unsignedMac.hardenedRuntime, false);
+      assert.notProperty(unsignedMac, "sign");
+      const signedMac = signed.mac as Record<string, unknown>;
+      assert.notProperty(signedMac, "identity");
+      assert.notProperty(signedMac, "hardenedRuntime");
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
   it("parses Windows bsdtar member listings with CRLF line endings", () => {
     assert.deepStrictEqual(
       parseWslRuntimeArchiveMembers("./t3-1.2.3-linux-x64/t3\r\nt3-1.2.3-linux-x64/client/\r\n"),
