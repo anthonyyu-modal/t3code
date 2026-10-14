@@ -357,13 +357,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "test-notification",
     title: "Test notification",
     to: "/settings/general",
-    searchTerms: ["notification send test macos system settings allow permission"],
+    searchTerms: ["notification send test macos system settings allow permission fork"],
   },
   {
     id: "resume-compaction",
     title: "Compact stale Claude threads",
     to: "/settings/general",
-    searchTerms: ["compact compaction claude context prompt cache tokens chip full history"],
+    searchTerms: ["compact compaction claude context prompt cache tokens chip full history fork"],
   },
   {
     id: "in-app-notifications",
