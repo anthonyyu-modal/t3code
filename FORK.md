@@ -11,6 +11,7 @@ Upstream T3 Code plus a small patch stack, released from this repository.
 - **Unsigned macOS builds are ad hoc signed and have no update feed** (`scripts/build-desktop-artifact.ts`): macOS refuses notifications from an app whose bundle is not signed, and Squirrel.Mac cannot install an ad hoc signed update.
 - **Settings → General → Test notification** posts a notification on demand: macOS lists an app in System Settings → Notifications only after it posts one.
 - **Settings rows this fork adds carry a Fork badge** (`forkSetting` in `apps/web/src/components/settings/forkSetting.tsx`); searching settings for "fork" lists them.
+- **A divider line separates pinned threads** from unpinned ones in the sidebar.
 - **`fork-release.yml`** builds the macOS arm64 app and the macOS arm64 + Linux x64 CLI archives on GitHub-hosted runners and publishes a release on the nightly train. Every other workflow is disabled in this repository.
 
 ## Release

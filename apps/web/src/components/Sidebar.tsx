@@ -3341,6 +3341,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 marker="pinned-divider"
                                 label="Active"
                                 visible={from !== null}
+                                rule={pinnedThreads.length > 0 && activeThreads.length > 0}
                                 isDropTarget={dragTargetSection === "active"}
                               />,
                             );
