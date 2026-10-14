@@ -752,7 +752,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
     title: "Test notification",
     to: "/settings/general",
-    searchTerms: ["notification send test macos system settings allow permission"],
+    searchTerms: ["notification send test macos system settings allow permission fork"],
   },
   {
     id: "in-app-notifications",
