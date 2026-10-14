@@ -509,7 +509,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "test-notification",
     title: "Test notification",
     to: "/settings/general",
-    searchTerms: ["notification send test macos system settings allow permission"],
+    searchTerms: ["notification send test macos system settings allow permission fork"],
   },
   {
     id: "in-app-notifications",
