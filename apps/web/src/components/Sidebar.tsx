@@ -1244,12 +1244,15 @@ function SidebarDragBoundary(props: {
   label: string;
   visible: boolean;
   isDropTarget: boolean;
+  // Fork: a rule like the draft divider, so pinned threads read as their own
+  // block. It keeps its height while dragging; the strategy sizes the label gap.
+  rule?: boolean;
 }) {
   return (
     <SortableSidebarMarker
       marker={props.marker}
       data-testid={`sidebar-${props.marker}`}
-      className="pointer-events-none relative mx-0.5 -mb-px h-0"
+      className={cn("pointer-events-none relative mx-0.5 -mb-px h-0", props.rule && "h-3")}
     >
       {props.visible ? (
         <div className="sidebar-drag-boundary-label absolute inset-x-2 top-1 flex h-4 items-center gap-2">
@@ -1269,6 +1272,9 @@ function SidebarDragBoundary(props: {
             )}
           />
         </div>
+      ) : null}
+      {props.rule && !props.visible ? (
+        <div aria-hidden className="absolute inset-x-2 top-1/2 h-px bg-sidebar-border/60" />
       ) : null}
     </SortableSidebarMarker>
   );
@@ -4951,6 +4957,7 @@ export default function Sidebar() {
                                 marker="pinned-divider"
                                 label="Active"
                                 visible={from !== null}
+                                rule={pinnedThreads.length > 0 && activeThreads.length > 0}
                                 isDropTarget={dragTargetSection === "active"}
                               />,
                             );
