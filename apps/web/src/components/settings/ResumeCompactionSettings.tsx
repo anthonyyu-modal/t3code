@@ -2,8 +2,8 @@ import * as Schema from "effect/Schema";
 
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { Switch } from "../ui/switch";
+import { forkSetting } from "./forkSetting";
 import { SettingsRow } from "./settingsLayout";
-import { searchableSetting } from "./settingsSearch";
 
 /**
  * Whether the composer offers to compact a stale Claude thread before sending
@@ -19,7 +19,7 @@ export function ResumeCompactionSettings() {
 
   return (
     <SettingsRow
-      {...searchableSetting("resume-compaction")}
+      {...forkSetting("resume-compaction")}
       description="Compact a Claude thread with 100k+ tokens before sending once its prompt cache has expired. Applies to this device."
       control={
         <Switch
