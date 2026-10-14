@@ -10,6 +10,7 @@ import {
 } from "../../threadNotifications";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { forkSetting } from "./forkSetting";
 import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
@@ -90,7 +91,7 @@ export function TestNotificationSettings() {
 
   return (
     <SettingsRow
-      {...searchableSetting("test-notification")}
+      {...forkSetting("test-notification")}
       description={
         message ??
         "Check that alerts reach you. macOS lists T3 Code in System Settings → Notifications only after it sends one."
