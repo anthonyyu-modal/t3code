@@ -11,6 +11,7 @@ import {
 } from "../../threadNotifications";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { forkSetting } from "./forkSetting";
 import { SettingsRow } from "./settingsLayout";
 import { useSearchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
@@ -106,7 +107,7 @@ export function TestNotificationSettings() {
 
   return (
     <SettingsRow
-      {...searchableSetting("test-notification")}
+      {...forkSetting("test-notification")}
       description={
         message ??
         // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
