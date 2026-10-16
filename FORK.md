@@ -12,6 +12,7 @@ Upstream T3 Code plus a small patch stack, released from this repository.
 - **Settings → General → Test notification** posts a notification on demand: macOS lists an app in System Settings → Notifications only after it posts one.
 - **Settings rows this fork adds carry a Fork badge** (`forkSetting` in `apps/web/src/components/settings/forkSetting.tsx`); searching settings for "fork" lists them.
 - **A divider line separates pinned threads** from unpinned ones in the sidebar.
+- **Two-finger trackpad swipes go back and forward** in the macOS desktop app, like ⌘[ and ⌘] (`apps/web/src/trackpadHistorySwipe.ts`; Settings → General → Swipe to go back and forward turns it off). Electron's own `swipe` event only fires for three-finger swipes.
 - **`fork-release.yml`** builds the macOS arm64 app and the macOS arm64 + Linux x64 CLI archives on GitHub-hosted runners and publishes a release on the nightly train. Every other workflow is disabled in this repository.
 
 ## Release
