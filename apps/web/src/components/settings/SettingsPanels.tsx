@@ -1,4 +1,5 @@
 import { NotificationSettings, TestNotificationSettings } from "./NotificationSettings";
+import { TrackpadSwipeSettings } from "./TrackpadSwipeSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { CheckIcon } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -977,6 +978,7 @@ export function GeneralSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="display" title="Display">
+        <TrackpadSwipeSettings />
         <SettingsRow
           {...searchableSetting("time-format")}
           description="System default follows your browser or OS clock preference."
