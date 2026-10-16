@@ -379,6 +379,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["compact compaction claude context prompt cache tokens chip full history fork"],
   },
   {
+    id: "trackpad-swipe-navigation",
+    title: "Swipe to go back and forward",
+    to: "/settings/general",
+    searchTerms: ["trackpad gesture two finger swipe navigate history back forward macos fork"],
+    desktopOnly: true,
+    macOnly: true,
+  },
+  {
     id: "in-app-notifications",
     title: "In-app notifications",
     to: "/settings/general",
