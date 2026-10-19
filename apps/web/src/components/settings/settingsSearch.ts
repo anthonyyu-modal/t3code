@@ -778,6 +778,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification send test macos system settings allow permission fork"],
   },
   {
+    id: "thread-thumbnails",
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+    title: "Thread thumbnails",
+    to: "/settings/general",
+    searchTerms: ["image generation model endpoint picture icon sidebar modal token prompt fork"],
+  },
+  {
     id: "in-app-notifications",
     title: msg("In-app notifications"),
     to: "/settings/general",
