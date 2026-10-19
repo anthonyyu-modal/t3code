@@ -671,6 +671,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification send test macos system settings allow permission fork"],
   },
   {
+    id: "thread-thumbnails",
+    title: "Thread thumbnails",
+    to: "/settings/general",
+    searchTerms: ["image generation model endpoint picture icon sidebar modal token prompt fork"],
+  },
+  {
     id: "in-app-notifications",
     title: "In-app notifications",
     to: "/settings/general",

@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { ThreadThumbnailSettings } from "./ThreadThumbnailSettings";
 import { NotificationSettings, TestNotificationSettings } from "./NotificationSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { CheckIcon } from "lucide-react";
@@ -882,6 +883,8 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <ThreadThumbnailSettings />
 
       <SettingsSection id="confirmations" title="Confirmations">
         <SettingsRow
