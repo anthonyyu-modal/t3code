@@ -1,5 +1,6 @@
 import { SettingsGroup } from "./SettingsGroup";
 import { NotificationSettings, TestNotificationSettings } from "./NotificationSettings";
+import { ThreadThumbnailSettings } from "./ThreadThumbnailSettings";
 import { TrackpadSwipeSettings } from "./TrackpadSwipeSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { CheckIcon, ChevronRightIcon } from "lucide-react";
@@ -1619,6 +1620,8 @@ export function GeneralSettingsPanel() {
 
         <BackgroundActivitySettingsRow />
       </SettingsSection>
+
+      <ThreadThumbnailSettings />
 
       <SettingsSection id="projects-and-threads" title="Projects & threads">
         <SettingsRow
