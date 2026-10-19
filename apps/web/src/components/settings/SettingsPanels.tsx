@@ -4,6 +4,7 @@ import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings, TestNotificationSettings } from "./NotificationSettings";
 import { ResumeCompactionSettings } from "./ResumeCompactionSettings";
+import { ThreadThumbnailSettings } from "./ThreadThumbnailSettings";
 import { TrackpadSwipeSettings } from "./TrackpadSwipeSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { ArchiveIcon, ArchiveX, CheckIcon, ChevronRightIcon, SettingsIcon } from "lucide-react";
@@ -2997,6 +2998,8 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <ThreadThumbnailSettings />
 
       <SettingsSection id="projects-and-threads" title="Projects & threads">
         <SettingsRow
