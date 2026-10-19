@@ -1,3 +1,4 @@
+import { ThreadThumbnailSettings } from "./ThreadThumbnailSettings";
 import { NotificationSettings, TestNotificationSettings } from "./NotificationSettings";
 import { TrackpadSwipeSettings } from "./TrackpadSwipeSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
@@ -857,6 +858,8 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <ThreadThumbnailSettings />
 
       <SettingsSection id="confirmations" title="Confirmations">
         <SettingsRow
