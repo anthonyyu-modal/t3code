@@ -1,7 +1,7 @@
 // Fork: macOS browsers go back and forward on a two-finger horizontal swipe.
 // Electron does not (its BrowserWindow "swipe" event only fires for
 // three-finger swipes), so the desktop app reads the swipe from the trackpad's
-// wheel events instead.
+// wheel events instead, and shows Chrome's arrow while it does.
 
 export type HistorySwipeDirection = "back" | "forward";
 
@@ -13,52 +13,67 @@ export interface HistorySwipeWheel {
   readonly blocked: boolean;
 }
 
-/** A pause this long ends a gesture. Momentum events keep it alive after the fingers lift. */
-export const HISTORY_SWIPE_GESTURE_GAP_MS = 200;
+/** How far a swipe has gone; at 1 or more, ending it navigates. */
+export interface HistorySwipeProgress {
+  readonly direction: HistorySwipeDirection;
+  readonly progress: number;
+}
+
+// Electron reports where a trackpad gesture ends (after any momentum), but a
+// renderer without that signal still needs a boundary between gestures.
+export const HISTORY_SWIPE_IDLE_END_MS = 250;
 /** Travel before a gesture commits to an axis, so a vertical scroll that drifts sideways stays a scroll. */
-const HISTORY_SWIPE_AXIS_PX = 12;
-/** Horizontal travel that navigates. */
-const HISTORY_SWIPE_NAVIGATE_PX = 160;
+const HISTORY_SWIPE_AXIS_PX = 10;
+/** Horizontal travel that navigates once the gesture ends. */
+const HISTORY_SWIPE_NAVIGATE_PX = 140;
 
 /**
- * Turns a stream of wheel events into at most one navigation per gesture.
- * `canStart` runs once at the start of each gesture: a gesture that begins
- * over something that scrolls sideways belongs to that element.
+ * Follows one trackpad gesture at a time: `wheel` reports a sideways swipe's travel, for the
+ * arrow, and `end` says where to navigate if the swipe still reaches the threshold. `canStart`
+ * runs once the direction is known: a swipe over something that can still scroll that way
+ * belongs to it.
  */
 export function createHistorySwipeTracker() {
-  let gesture: {
-    phase: "pending" | "horizontal" | "ignored" | "done";
-    x: number;
-    y: number;
-    lastTimeStamp: number;
-  } | null = null;
+  let phase: "idle" | "pending" | "tracking" | "ignored" = "idle";
+  let x = 0;
+  let y = 0;
+  let direction: HistorySwipeDirection = "back";
+  let lastTimeStamp = Number.NEGATIVE_INFINITY;
 
-  return (wheel: HistorySwipeWheel, canStart: () => boolean): HistorySwipeDirection | null => {
-    if (
-      gesture === null ||
-      wheel.timeStamp - gesture.lastTimeStamp > HISTORY_SWIPE_GESTURE_GAP_MS
-    ) {
-      gesture = {
-        phase: !wheel.blocked && canStart() ? "pending" : "ignored",
-        x: 0,
-        y: 0,
-        lastTimeStamp: wheel.timeStamp,
-      };
-    }
-    gesture.lastTimeStamp = wheel.timeStamp;
-    if (wheel.blocked) gesture.phase = "ignored";
-    if (gesture.phase === "ignored" || gesture.phase === "done") return null;
+  const travel = () => (direction === "back" ? -x : x);
+  const reset = () => {
+    phase = "idle";
+    x = 0;
+    y = 0;
+  };
 
-    gesture.x += wheel.deltaX;
-    gesture.y += wheel.deltaY;
-    if (gesture.phase === "pending") {
-      if (Math.abs(gesture.x) + Math.abs(gesture.y) < HISTORY_SWIPE_AXIS_PX) return null;
-      gesture.phase = Math.abs(gesture.x) > 2 * Math.abs(gesture.y) ? "horizontal" : "ignored";
-      if (gesture.phase === "ignored") return null;
-    }
-    if (Math.abs(gesture.x) < HISTORY_SWIPE_NAVIGATE_PX) return null;
-    gesture.phase = "done";
-    // Like a browser's overscroll: scrolling further left than the page goes is back.
-    return gesture.x < 0 ? "back" : "forward";
+  return {
+    wheel(
+      wheel: HistorySwipeWheel,
+      canStart: (direction: HistorySwipeDirection) => boolean,
+    ): HistorySwipeProgress | null {
+      if (wheel.timeStamp - lastTimeStamp > HISTORY_SWIPE_IDLE_END_MS) reset();
+      lastTimeStamp = wheel.timeStamp;
+      if (phase === "idle") phase = "pending";
+      if (wheel.blocked) phase = "ignored";
+      if (phase === "ignored") return null;
+
+      x += wheel.deltaX;
+      y += wheel.deltaY;
+      if (phase === "pending") {
+        if (Math.abs(x) + Math.abs(y) < HISTORY_SWIPE_AXIS_PX) return null;
+        direction = x < 0 ? "back" : "forward";
+        phase = Math.abs(x) > 1.5 * Math.abs(y) && canStart(direction) ? "tracking" : "ignored";
+        if (phase === "ignored") return null;
+      }
+      // Like a browser's overscroll: scrolling further left than the page goes is back.
+      return { direction, progress: Math.max(0, travel()) / HISTORY_SWIPE_NAVIGATE_PX };
+    },
+    end(): HistorySwipeDirection | null {
+      const target =
+        phase === "tracking" && travel() >= HISTORY_SWIPE_NAVIGATE_PX ? direction : null;
+      reset();
+      return target;
+    },
   };
 }
