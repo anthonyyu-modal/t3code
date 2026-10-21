@@ -805,6 +805,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     isWoke,
     isActive: props.isActive,
     isSelected,
+    hasOpenPullRequest: pr?.state === "open",
   });
   const runStatus =
     status === "preparing" || status === "working"
