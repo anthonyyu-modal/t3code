@@ -720,6 +720,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     isWoke,
     isActive: props.isActive,
     isSelected,
+    hasOpenPullRequest: pr?.state === "open",
   });
   const topStatus =
     status === "working"
