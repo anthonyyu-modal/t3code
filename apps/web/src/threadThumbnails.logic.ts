@@ -12,8 +12,10 @@ export const ThreadThumbnailConfig = Schema.Struct({
 });
 export type ThreadThumbnailConfig = typeof ThreadThumbnailConfig.Type;
 
+// Qwen-Image draws quoted words as lettering and its distilled variants ignore
+// "no text", so the title stays unquoted and "pictogram" steers away from letters.
 export const DEFAULT_THREAD_THUMBNAIL_PROMPT =
-  'Minimal flat app icon for a software task titled "{title}". If the task involves a well-known product or service, make that product\'s logo the main element; otherwise show one simple symbol of the task. Bold shapes, vivid colors, solid background, centered, no text or letters.';
+  "App icon in a flat, modern vector style, like a macOS dock icon. It depicts {title}, shown as one simple pictogram on a rounded square with a solid color background.";
 
 export const DEFAULT_THREAD_THUMBNAIL_CONFIG: ThreadThumbnailConfig = {
   enabled: false,
