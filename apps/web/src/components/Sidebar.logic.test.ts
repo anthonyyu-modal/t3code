@@ -219,6 +219,24 @@ function makeLatestRun(overrides?: {
   };
 }
 
+describe("shouldRecedeSidebarThread", () => {
+  it.each(["ready", "approval", "working", "waiting"] as const)(
+    "keeps a read %s thread with an open pull request prominent",
+    (status) => {
+      const input = {
+        status,
+        isUnread: false,
+        isWoke: false,
+        isActive: false,
+        isSelected: false,
+      };
+
+      expect(shouldRecedeSidebarThread({ ...input, hasOpenPullRequest: false })).toBe(true);
+      expect(shouldRecedeSidebarThread({ ...input, hasOpenPullRequest: true })).toBe(false);
+    },
+  );
+});
+
 describe("orderItemsByPreferredIds", () => {
   it("resolves legacy preference aliases without materializing project state", () => {
     const ordered = orderItemsByPreferredIds({
@@ -296,6 +314,7 @@ describe("resolveSidebarThreadStatus", () => {
         isWoke: false,
         isActive: false,
         isSelected: false,
+        hasOpenPullRequest: false,
       }),
     ).toBe(false);
   });
@@ -977,6 +996,7 @@ describe("unseen completion with background work", () => {
         isWoke: false,
         isActive: false,
         isSelected: false,
+        hasOpenPullRequest: false,
       }),
     ).toBe(expected.receded);
     expect(isSidebarThreadWorking(thread)).toBe(expected.receded);

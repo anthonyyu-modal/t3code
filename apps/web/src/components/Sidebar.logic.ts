@@ -873,8 +873,12 @@ export function shouldRecedeSidebarThread(input: {
   isWoke: boolean;
   isActive: boolean;
   isSelected: boolean;
+  hasOpenPullRequest: boolean;
 }): boolean {
   if (input.isActive || input.isSelected || input.status === "input") return false;
+  // An open pull request is unfinished work even after its thread has been read,
+  // so it keeps the row prominent until the PR merges or closes.
+  if (input.hasOpenPullRequest) return false;
   if (input.status === "working" || input.status === "waiting") return true;
   if (input.status === "ready" || input.status === "approval") {
     return !input.isUnread && !input.isWoke;
