@@ -8,11 +8,12 @@ import { useRenderedAppearance } from "~/hooks/useTheme";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 
-import { FILE_LINK_REVEAL_UNSAFE_CSS } from "./fileSurfaceChrome";
+import { FILE_SOURCE_UNSAFE_CSS } from "./fileSurfaceChrome";
 import { SourceSelection } from "./sourceSelection";
+import { useWordOccurrenceHighlights } from "./wordOccurrenceHighlights";
 
 // The diff surface fades a file in as it mounts; a preview appears at once, as the editable view does.
-const READ_ONLY_SOURCE_UNSAFE_CSS = `${FILE_LINK_REVEAL_UNSAFE_CSS}
+const READ_ONLY_SOURCE_UNSAFE_CSS = `${FILE_SOURCE_UNSAFE_CSS}
 [data-file] {
   transition: none;
 }
@@ -33,6 +34,7 @@ export default function ReadOnlySourcePreview(props: {
   const wordWrap = props.wordWrap ?? defaultWordWrap;
   const { text, onPostRender } = props;
   const wrapper = useRef<HTMLDivElement>(null);
+  useWordOccurrenceHighlights(wrapper, () => text);
   const [selection] = useState(() => new SourceSelection());
   // CodeView only re-renders a reused item when its version changes; bump it as streaming or
   // refreshed files update text without remounting and losing scroll position.
