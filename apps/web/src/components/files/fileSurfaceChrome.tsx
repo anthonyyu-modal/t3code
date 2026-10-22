@@ -7,12 +7,14 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { DIFF_SURFACE_THEME_UNSAFE_CSS } from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
 
+import { WORD_OCCURRENCE_UNSAFE_CSS } from "./wordOccurrenceHighlights";
+
 export const FILE_SURFACE_SUBHEADER_CLASS =
   "flex h-10 min-h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent";
 
 export const FILE_LINK_REVEAL_ATTRIBUTE = "data-file-link-reveal";
 
-export const FILE_LINK_REVEAL_UNSAFE_CSS = `
+const FILE_LINK_REVEAL_UNSAFE_CSS = `
   ${DIFF_SURFACE_THEME_UNSAFE_CSS}
 
   diffs-container {
@@ -57,6 +59,8 @@ export const FILE_LINK_REVEAL_UNSAFE_CSS = `
     color: var(--diffs-selection-number-fg) !important;
   }
 `;
+
+export const FILE_SOURCE_UNSAFE_CSS = `${FILE_LINK_REVEAL_UNSAFE_CSS}${WORD_OCCURRENCE_UNSAFE_CSS}`;
 
 export function FileSurfaceAction(props: {
   readonly label: string;
