@@ -419,6 +419,9 @@ it.effect("sql: the resuming message time counts MCP sends and ignores agent not
       DateTime.formatIso(shellThread!.latestUserAuthoredMessageAt!),
       DateTime.formatIso(written),
     );
+    assert.equal(shellThread!.userAuthoredMessageCount, 1);
+    yield* message("follow-up", "user", "web", now);
+    assert.equal((yield* store.getThreadShell(threadId))?.userAuthoredMessageCount, 2);
   }).pipe(Effect.provide(layerSql)),
 );
 
