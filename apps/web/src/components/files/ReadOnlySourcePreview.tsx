@@ -7,8 +7,9 @@ import { useRenderedAppearance } from "~/hooks/useTheme";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 
-import { FILE_LINK_REVEAL_UNSAFE_CSS } from "./fileSurfaceChrome";
+import { FILE_SOURCE_UNSAFE_CSS } from "./fileSurfaceChrome";
 import { SourceSelection } from "./sourceSelection";
+import { useWordOccurrenceHighlights } from "./wordOccurrenceHighlights";
 
 export default function ReadOnlySourcePreview(props: {
   readonly name: string;
@@ -25,6 +26,7 @@ export default function ReadOnlySourcePreview(props: {
   const wordWrap = props.wordWrap ?? defaultWordWrap;
   const { text, onPostRender } = props;
   const wrapper = useRef<HTMLDivElement>(null);
+  useWordOccurrenceHighlights(wrapper, () => text);
   const [selection] = useState(() => new SourceSelection());
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- follows the document's selection, which only it reports
   useEffect(() => {
@@ -92,7 +94,7 @@ export default function ReadOnlySourcePreview(props: {
                 ? {}
                 : { tokenizeMaxLength: props.tokenizeMaxLength }),
               themeType: resolvedTheme,
-              unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
+              unsafeCSS: FILE_SOURCE_UNSAFE_CSS,
               onPostRender: drawSelection,
             }}
             className="min-h-full"
