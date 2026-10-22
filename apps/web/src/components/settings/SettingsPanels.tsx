@@ -3,6 +3,7 @@ import { m as resolveMessage } from "~/i18n/messages";
 import { useAtomValue } from "@effect/atom-react";
 import { ThreadThumbnailSettings } from "./ThreadThumbnailSettings";
 import { NotificationSettings, TestNotificationSettings } from "./NotificationSettings";
+import { QuickThreadsSettings } from "./QuickThreadsSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { CheckIcon } from "lucide-react";
 import { msg, T, useGT, useMessages } from "gt-react";
@@ -967,6 +968,8 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+
+        <QuickThreadsSettings />
       </SettingsSection>
 
       <ThreadThumbnailSettings />
