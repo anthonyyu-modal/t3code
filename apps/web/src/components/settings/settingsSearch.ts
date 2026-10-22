@@ -499,6 +499,21 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("hide fold running monitoring threads inbox sidebar shelf")],
   },
   {
+    id: "quick-threads",
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+    title: "Quick section",
+    to: "/settings/general",
+    searchTerms: ["short small throwaway threads sidebar shelf messages size fork"],
+  },
+  {
+    id: "quick-thread-max-messages",
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+    title: "Messages in a quick thread",
+    to: "/settings/general",
+    targetId: "quick-threads",
+    searchTerms: ["quick section limit threshold size short threads sidebar fork"],
+  },
+  {
     id: "boring-sidebar",
     title: msg("Boring sidebar (group by project)"),
     to: "/settings/labs",
