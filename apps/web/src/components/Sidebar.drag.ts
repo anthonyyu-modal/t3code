@@ -13,11 +13,16 @@ const stationary = { x: 0, y: 0, scaleX: 1, scaleY: 1 };
 const hidden = { ...stationary, scaleY: 0 };
 type ThreadItem = Extract<SidebarListItem, { kind: "thread" }>;
 type Layout = Parameters<SortingStrategy>[0];
+const SHELF_HEADERS = [
+  "quick-header",
+  "working-header",
+  "snoozed-header",
+  "settled-header",
+] as const;
 const isShelfHeader = (item: SidebarListItem | undefined) =>
-  item?.kind === "marker" &&
-  (item.marker === "working-header" ||
-    item.marker === "snoozed-header" ||
-    item.marker === "settled-header");
+  item?.kind === "marker" && (SHELF_HEADERS as readonly SidebarListMarker[]).includes(item.marker);
+const isCardSection = (section: SidebarSection) =>
+  section === "pinned" || section === "active" || section === "quick" || section === "working";
 
 export function restrictBelowSidebarLabel(
   { transform, containerNodeRect, draggingNodeRect }: Parameters<Modifier>[0],
@@ -58,11 +63,9 @@ export function createSidebarCollisionDetection(
       if (pointer.x >= boundary.left && pointer.x <= boundary.right) {
         if (pointer.y < previousY && pointer.y <= boundary.bottom) boundarySection = "pinned";
         else if (pointer.y > previousY && pointer.y >= boundary.top) boundarySection = "active";
-        const nextHeader = (["working-header", "snoozed-header", "settled-header"] as const)
-          .map((marker) =>
-            args.droppableContainers.find((container) => container.id === sidebarMarkerId(marker)),
-          )
-          .find((container) => container !== undefined);
+        const nextHeader = SHELF_HEADERS.map((marker) =>
+          args.droppableContainers.find((container) => container.id === sidebarMarkerId(marker)),
+        ).find((container) => container !== undefined);
         const activeBottom = nextHeader?.node.current?.getBoundingClientRect().top;
         if (boundarySection === "pinned" || (activeBottom != null && pointer.y < activeBottom)) {
           const target = collisions.find((collision) => {
@@ -99,6 +102,7 @@ export function createSidebarSortingStrategy(input: {
   settledExpanded: boolean;
   settledVisibleCount?: number;
   routeThreadKey?: string | null;
+  quickThreadCount?: number;
   snoozedThreadCount?: number;
   cardHeight?: number;
   slimHeight?: number;
@@ -119,6 +123,7 @@ export function createSidebarSortingStrategy(input: {
     const groups: Record<SidebarSection, ThreadItem[]> = {
       pinned: [],
       active: [],
+      quick: [],
       working: [],
       snoozed: [],
       settled: [],
@@ -134,8 +139,7 @@ export function createSidebarSortingStrategy(input: {
         }
         continue;
       }
-      if (item.section === "pinned" || item.section === "active" || item.section === "working")
-        cardHeight ??= rects[index]?.height;
+      if (isCardSection(item.section)) cardHeight ??= rects[index]?.height;
       else slimHeight ??= rects[index]?.height;
       if (item.key !== active.key) groups[item.section].push(item);
     }
@@ -178,6 +182,15 @@ export function createSidebarSortingStrategy(input: {
     projected.push(...groups.pinned);
     marker("pinned-divider");
     section("active");
+    // Like Snoozed below: dragging out the shelf's last thread removes its header.
+    if (
+      groups.quick.length > 0 ||
+      ((active.section !== "quick" || (input.quickThreadCount ?? 0) > 1) &&
+        items.some((item) => item.kind === "marker" && item.marker === "quick-header"))
+    ) {
+      marker("quick-header");
+      projected.push(...groups.quick);
+    }
     if (items.some((item) => item.kind === "marker" && item.marker === "working-header")) {
       marker("working-header");
       projected.push(...groups.working);
@@ -196,10 +209,7 @@ export function createSidebarSortingStrategy(input: {
       const index = indices.get(sidebarListItemId(item));
       const rect = index === undefined ? undefined : rects[index];
       const fallback =
-        item.kind === "thread" &&
-        (item.section === "pinned" || item.section === "active" || item.section === "working")
-          ? cardHeight
-          : slimHeight;
+        item.kind === "thread" && isCardSection(item.section) ? cardHeight : slimHeight;
       const moved = item.kind === "thread" && item.key === active.key;
       return item.kind === "marker" &&
         (item.marker === "pinned-header" || item.marker === "pinned-divider")

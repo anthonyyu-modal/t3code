@@ -297,7 +297,7 @@ it.effect.each([
 it.effect.each([
   ["sql", layerSql],
   ["memory", ProjectionStore.layerMemory],
-] as const)("%s: the user-authored message time ignores agent notifications", ([, testLayer]) =>
+] as const)("%s: user-authored message fields ignore agent notifications", ([, testLayer]) =>
   Effect.gen(function* () {
     const store = yield* ProjectionStore.ProjectionStoreV2;
     const threadId = yield* createThread("agent-woken");
@@ -346,6 +346,9 @@ it.effect.each([
       DateTime.formatIso(shellThread!.latestUserAuthoredMessageAt!),
       DateTime.formatIso(written),
     );
+    assert.equal(shellThread!.userAuthoredMessageCount, 1);
+    yield* message("follow-up", "user", "web", now);
+    assert.equal((yield* store.getThreadShell(threadId))?.userAuthoredMessageCount, 2);
   }).pipe(Effect.provide(testLayer)),
 );
 

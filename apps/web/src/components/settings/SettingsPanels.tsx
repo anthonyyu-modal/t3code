@@ -1,6 +1,7 @@
 import { SettingsGroup } from "./SettingsGroup";
 import { NotificationSettings, TestNotificationSettings } from "./NotificationSettings";
 import { ThreadThumbnailSettings } from "./ThreadThumbnailSettings";
+import { QuickThreadsSettings } from "./QuickThreadsSettings";
 import { TrackpadSwipeSettings } from "./TrackpadSwipeSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { CheckIcon, ChevronRightIcon } from "lucide-react";
@@ -998,6 +999,8 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+
+        <QuickThreadsSettings />
 
         <SettingsRow
           serverScoped

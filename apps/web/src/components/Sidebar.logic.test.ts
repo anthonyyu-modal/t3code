@@ -9,6 +9,7 @@ import {
   deleteSelectedThreadEntries,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
+  isQuickSidebarThread,
   resolveSidebarRowThreadId,
   isSidebarThreadWorking,
   orderItemsByPreferredIds,
@@ -1256,5 +1257,70 @@ describe("pendingSidebarRouteReveal", () => {
     pendingSidebarRouteReveal(reveal, "env:a1");
     expect(pendingSidebarRouteReveal(reveal, null)).toBeNull();
     expect(pendingSidebarRouteReveal(reveal, "env:a1")).toBe("env:a1");
+  });
+});
+
+describe("Quick shelf (fork)", () => {
+  it("holds threads until you have written more messages than the limit", () => {
+    expect(isQuickSidebarThread({ userAuthoredMessageCount: 0 }, 2)).toBe(true);
+    expect(isQuickSidebarThread({ userAuthoredMessageCount: 2 }, 2)).toBe(true);
+    expect(isQuickSidebarThread({ userAuthoredMessageCount: 3 }, 2)).toBe(false);
+  });
+
+  it("leaves threads in Active when the shelf is off or the server sends no count", () => {
+    expect(isQuickSidebarThread({ userAuthoredMessageCount: 1 }, null)).toBe(false);
+    expect(isQuickSidebarThread({}, 2)).toBe(false);
+  });
+
+  describe("dragging", () => {
+    const marker = (name: SidebarListMarker): SidebarListItem => ({ kind: "marker", marker: name });
+    const row = (key: string, section: SidebarSection): SidebarListItem => ({
+      kind: "thread",
+      key,
+      section,
+    });
+    const items: readonly SidebarListItem[] = [
+      marker("pinned-header"),
+      row("p1", "pinned"),
+      marker("pinned-divider"),
+      row("a1", "active"),
+      row("a2", "active"),
+      marker("quick-header"),
+      row("q1", "quick"),
+      marker("settled-header"),
+      row("s1", "settled"),
+    ];
+    const planFor = (overKey: string) =>
+      planSidebarThreadDrop({
+        activeKey: "q1",
+        activeSection: "quick",
+        target: resolveSidebarDropTarget(items, "q1", overKey)!,
+        pinnedOrder: ["p1"],
+        pinnedKeysById: new Map([["p1", "m"]]),
+        activeOrder: ["a1", "a2"],
+        activeKeysById: new Map([
+          ["a1", "f"],
+          ["a2", "t"],
+        ]),
+      });
+
+    it("never drops into the Quick shelf, and keeps it out of the Active order", () => {
+      expect(resolveSidebarDropTarget(items, "a1", "q1")).toBeNull();
+      expect(resolveSidebarDropTarget(items, "p1", "a2")).toEqual({
+        section: "active",
+        pinnedOrder: [],
+        activeOrder: ["a1", "a2", "p1"],
+      });
+      expect(resolveSidebarDropVerb("active", "quick")).toBeNull();
+    });
+
+    it("pins or settles a quick thread, but cannot reorder it into Active", () => {
+      expect(planFor("p1").kind).toBe("pin");
+      expect(resolveSidebarDropVerb("quick", "pinned")).toBe("pin");
+      expect(planFor("s1")).toEqual({ kind: "settle" });
+      expect(resolveSidebarDropVerb("quick", "settled")).toBe("settle");
+      expect(planFor("a2")).toEqual({ kind: "none" });
+      expect(resolveSidebarDropVerb("quick", "active")).toBeNull();
+    });
   });
 });

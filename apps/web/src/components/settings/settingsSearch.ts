@@ -329,6 +329,19 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["hide fold running monitoring threads inbox sidebar shelf"],
   },
   {
+    id: "quick-threads",
+    title: "Quick section",
+    to: "/settings/general",
+    searchTerms: ["short small throwaway threads sidebar shelf messages size fork"],
+  },
+  {
+    id: "quick-thread-max-messages",
+    title: "Messages in a quick thread",
+    to: "/settings/general",
+    targetId: "quick-threads",
+    searchTerms: ["quick section limit threshold size short threads sidebar fork"],
+  },
+  {
     id: "auto-settle-inactive-threads",
     title: "Auto-settle inactive threads",
     to: "/settings/general",

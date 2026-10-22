@@ -37,7 +37,9 @@ function layout(
   const rects = items.map((item) => {
     const height =
       item.kind === "thread"
-        ? (item.section === "pinned" || item.section === "active" ? cardHeight : 36) * scale
+        ? (item.section === "pinned" || item.section === "active" || item.section === "quick"
+            ? cardHeight
+            : 36) * scale
         : item.marker === "pinned-header" || item.marker === "pinned-divider"
           ? 0
           : (item.marker.endsWith("placeholder") ? 0 : 32) * scale;
@@ -679,6 +681,40 @@ describe("sidebar drag projection", () => {
     );
     expect(result.get(sidebarMarkerId("snoozed-header"))).toEqual({ ...stationary, y: 83 });
     expect(result.get(sidebarMarkerId("settled-header"))?.y).toBe(46);
+  });
+
+  describe("Quick shelf (fork)", () => {
+    const items = [
+      pinnedHeader,
+      thread("p", "pinned"),
+      divider,
+      thread("a", "active"),
+      marker("quick-header"),
+      thread("q", "quick"),
+      settledHeader,
+      thread("s", "settled"),
+    ];
+
+    it("removes the Quick header when its last thread is pinned", () => {
+      const result = preview(
+        { items, settledOrder: [], settledExpanded: true, quickThreadCount: 1 },
+        "q",
+        "p",
+      );
+      expect(result.get("p")?.y).toBe(83);
+      expect(result.get(sidebarMarkerId("quick-header"))?.scaleY).toBe(0);
+      expect(result.get(sidebarMarkerId("settled-header"))?.y).toBe(-33);
+    });
+
+    it("keeps the header of a collapsed shelf that still holds other threads", () => {
+      const result = preview(
+        { items, settledOrder: [], settledExpanded: true, quickThreadCount: 2 },
+        "q",
+        "p",
+      );
+      expect(result.get(sidebarMarkerId("quick-header"))).toEqual({ ...stationary, y: 83 });
+      expect(result.get(sidebarMarkerId("settled-header"))?.y).toBe(0);
+    });
   });
 });
 
