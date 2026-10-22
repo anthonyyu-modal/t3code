@@ -1064,6 +1064,11 @@ type ShellRunItemCountRow = {
   readonly item_count: number;
 };
 
+type ShellUserAuthoredMessageCountRow = {
+  readonly thread_id: string;
+  readonly message_count: number;
+};
+
 type ShellItemCountRow = {
   readonly thread_id: string;
   readonly item_count: number;
@@ -1586,6 +1591,7 @@ export function threadShellFromProjection(
       ) ?? pendingRuntimeRequest;
   }
   const latestUserMessage = userMessages[0] ?? null;
+  const userAuthoredMessages = userMessages.filter((message) => message.createdBy === "user");
   const pendingBackgroundTasks = derivePendingBackgroundWork({
     latestRun,
     providerThreads: projection.providerThreads,
@@ -1654,6 +1660,7 @@ export function threadShellFromProjection(
     latestVisibleMessage: null,
     latestUserMessageAt: latestUserMessage?.updatedAt ?? null,
     latestUserAuthoredMessageAt,
+    userAuthoredMessageCount: userAuthoredMessages.length,
     hasActionableProposedPlan: projection.plans.some(
       (plan) => plan.kind === "proposed_plan" && plan.status === "active",
     ),
@@ -1765,6 +1772,7 @@ type ShellThreadState = {
   readonly pendingRuntimeRequest: OrchestrationV2PendingRuntimeRequestSummary | null;
   readonly latestUserMessageAt: DateTime.Utc | null;
   readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
+  readonly userAuthoredMessageCount: number;
   readonly hasActionableProposedPlan: boolean;
   readonly pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"];
   readonly providerInstanceHistory: OrchestrationV2ThreadShell["providerInstanceHistory"];
@@ -1928,6 +1936,7 @@ function shellFromState(input: {
     latestVisibleMessage: null,
     latestUserMessageAt: input.state.latestUserMessageAt,
     latestUserAuthoredMessageAt: input.state.latestUserAuthoredMessageAt,
+    userAuthoredMessageCount: input.state.userAuthoredMessageCount,
     hasActionableProposedPlan: input.state.hasActionableProposedPlan,
     pendingBackgroundTasks: input.state.pendingBackgroundTasks,
     providerInstanceHistory: input.state.providerInstanceHistory,
@@ -6389,6 +6398,18 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         GROUP BY counts.thread_id
       `;
 
+    // Fork (Quick section): kept out of the shared shell row so agent awareness reads skip it.
+    const selectShellUserAuthoredMessageCounts = (threadIds: ReadonlyArray<ThreadId>) =>
+      sql<ShellUserAuthoredMessageCountRow>`
+        SELECT message.thread_id, COUNT(*) AS message_count
+        FROM orchestration_v2_projection_messages message
+        WHERE message.thread_id IN (SELECT value FROM json_each(${encodeIdList(threadIds)}))
+          AND message.role = 'user'
+          AND json_extract(message.payload_json, '$.createdBy') = 'user'
+          AND NOT ${isIdleCompactionMessage("message")}
+        GROUP BY message.thread_id
+      `;
+
     const selectShellProviderThreadRows = (threadIds?: ReadonlyArray<ThreadId>) =>
       threadIds === undefined
         ? sql<PayloadRow & { readonly thread_id: string }>`
@@ -6453,6 +6474,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       }
       return { runOrdinalsByThreadId, itemCountsByThreadId };
     };
+
+    const userAuthoredMessageCountMap = (rows: ReadonlyArray<ShellUserAuthoredMessageCountRow>) =>
+      new Map(rows.map((row) => [ThreadId.make(row.thread_id), row.message_count] as const));
 
     const shellItemCountMap = (rows: ReadonlyArray<ShellItemCountRow>) =>
       new Map(
@@ -6718,6 +6742,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           ThreadId,
           { readonly itemCount: number; readonly runlessItemCount: number }
         >;
+        readonly userAuthoredMessageCountsByThreadId: ReadonlyMap<ThreadId, number>;
         readonly providerThreadsByThreadId: ReadonlyMap<
           ThreadId,
           ReadonlyArray<OrchestrationV2ThreadProjection["providerThreads"][number]>
@@ -6732,6 +6757,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           runOrdinalsByThreadId,
           itemCountsByThreadId,
           shellItemCountsByThreadId,
+          userAuthoredMessageCountsByThreadId,
           providerThreadsByThreadId,
           pendingTurnItemsByThreadId,
         } = input;
@@ -6872,6 +6898,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               ? null
               : DateTime.makeUnsafe(row.latest_user_message_at),
           latestUserAuthoredMessageAt,
+          userAuthoredMessageCount: userAuthoredMessageCountsByThreadId.get(thread.id) ?? 0,
           hasActionableProposedPlan: row.has_actionable_proposed_plan === 1,
           pendingBackgroundTasks,
           providerInstanceHistory: providerInstanceHistoryForShell({
@@ -6927,6 +6954,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         runRows,
         itemCountRows,
         shellItemCountRows,
+        userAuthoredMessageCountRows,
         sequenceRows,
         providerThreadRows,
         pendingTurnItemRows,
@@ -6934,6 +6962,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         readForThreadIds(selectShellRunRows, forkSourceIds),
         readForThreadIds(selectShellRunItemCounts, forkSourceIds),
         readForThreadIds(selectShellItemCounts),
+        readForThreadIds(selectShellUserAuthoredMessageCounts),
         sql<{ readonly snapshot_sequence: number | null }>`
         SELECT MAX(sequence) AS snapshot_sequence
         FROM orchestration_events
@@ -6958,6 +6987,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         runRows,
         itemCountRows,
         shellItemCountRows,
+        userAuthoredMessageCountRows,
         sequenceRows,
         providerThreadRows,
         pendingTurnItemRows,
@@ -6970,6 +7000,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       runRows,
       itemCountRows,
       shellItemCountRows,
+      userAuthoredMessageCountRows,
       sequenceRows,
       providerThreadRows,
       pendingTurnItemRows,
@@ -6979,6 +7010,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         itemCountRows,
       });
       const shellItemCountsByThreadId = shellItemCountMap(shellItemCountRows);
+      const userAuthoredMessageCountsByThreadId = userAuthoredMessageCountMap(
+        userAuthoredMessageCountRows,
+      );
       const { providerThreadsByThreadId, pendingTurnItemsByThreadId } =
         yield* pendingBackgroundDataByThreadId({ providerThreadRows, pendingTurnItemRows });
       const states = yield* Effect.forEach(threadRows, (row) =>
@@ -6987,6 +7021,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           runOrdinalsByThreadId,
           itemCountsByThreadId,
           shellItemCountsByThreadId,
+          userAuthoredMessageCountsByThreadId,
           providerThreadsByThreadId,
           pendingTurnItemsByThreadId,
         }),
@@ -7093,6 +7128,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             runOrdinalsByThreadId: new Map(),
             itemCountsByThreadId: new Map(),
             shellItemCountsByThreadId: new Map(),
+            userAuthoredMessageCountsByThreadId: new Map(),
             providerThreadsByThreadId,
             pendingTurnItemsByThreadId,
           }).pipe(
@@ -7341,6 +7377,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               runRows,
               itemCountRows,
               shellItemCountRows,
+              userAuthoredMessageCountRows,
               providerThreadRows,
               pendingTurnItemRows,
             ] = yield* Effect.all([
@@ -7351,6 +7388,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ? Effect.succeed([] as ReadonlyArray<ShellRunItemCountRow>)
                 : selectShellRunItemCounts(forkSourceIds),
               selectShellItemCounts(threadIds),
+              selectShellUserAuthoredMessageCounts(threadIds),
               selectShellProviderThreadRows(threadIds),
               selectShellPendingTurnItemRows(
                 threadIds,
@@ -7366,6 +7404,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               itemCountRows,
             });
             const shellItemCountsByThreadId = shellItemCountMap(shellItemCountRows);
+            const userAuthoredMessageCountsByThreadId = userAuthoredMessageCountMap(
+              userAuthoredMessageCountRows,
+            );
             const { providerThreadsByThreadId, pendingTurnItemsByThreadId } =
               yield* pendingBackgroundDataByThreadId({ providerThreadRows, pendingTurnItemRows });
 
@@ -7375,6 +7416,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 runOrdinalsByThreadId,
                 itemCountsByThreadId,
                 shellItemCountsByThreadId,
+                userAuthoredMessageCountsByThreadId,
                 providerThreadsByThreadId,
                 pendingTurnItemsByThreadId,
               }),

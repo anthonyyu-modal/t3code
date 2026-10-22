@@ -170,8 +170,20 @@ export const animateSidebarLayoutChanges: AnimateLayoutChanges = (args) =>
   args.isSorting ? defaultAnimateLayoutChanges(args) : false;
 
 // Snoozed rows cannot accept drops without a wake time. Working rows only drag out as chat context.
+// Quick (fork) holds Active threads under the user's size limit: its rows can be pinned or settled
+// by dragging, but nothing drops into it or reorders into Active, since size decides membership.
 
-export type SidebarSection = "pinned" | "active" | "working" | "snoozed" | "settled";
+export type SidebarSection = "pinned" | "active" | "quick" | "working" | "snoozed" | "settled";
+
+/** Whether an Active thread is small enough for the Quick shelf; null turns the shelf off. */
+export function isQuickSidebarThread(
+  thread: Pick<SidebarThreadSummary, "userAuthoredMessageCount">,
+  maxMessages: number | null,
+): boolean {
+  // Servers that predate the count leave it out; their threads stay in Active.
+  if (maxMessages === null || thread.userAuthoredMessageCount === undefined) return false;
+  return thread.userAuthoredMessageCount <= maxMessages;
+}
 
 export function resolveSidebarThreadSection(input: {
   readonly snoozed: boolean;
@@ -191,6 +203,7 @@ export type SidebarListMarker =
   | "active-placeholder"
   | "settled-placeholder"
   | "pinned-divider"
+  | "quick-header"
   | "working-header"
   | "snoozed-header"
   | "settled-header";
@@ -213,6 +226,7 @@ function sectionAtSidebarSlot(items: readonly SidebarListItem[], index: number):
     const item = items[i]!;
     if (item.kind !== "marker") continue;
     if (item.marker === "pinned-divider") section = "active";
+    else if (item.marker === "quick-header") section = "quick";
     else if (item.marker === "working-header") section = "working";
     else if (item.marker === "snoozed-header") section = "snoozed";
     else if (item.marker === "settled-header") section = "settled";
@@ -237,7 +251,7 @@ export function resolveSidebarDropTarget(
   const moved = items.filter((_, index) => index !== activeIndex);
   moved.splice(overIndex, 0, items[activeIndex]!);
   const section = sectionAtSidebarSlot(moved, overIndex);
-  if (section === "working" || section === "snoozed") return null;
+  if (section === "quick" || section === "working" || section === "snoozed") return null;
   const pinnedOrder: string[] = [];
   const activeOrder: string[] = [];
   let currentSection: SidebarSection = "pinned";
@@ -245,6 +259,7 @@ export function resolveSidebarDropTarget(
     if (item.kind === "marker") {
       if (item.marker === "pinned-divider") currentSection = "active";
       else if (
+        item.marker === "quick-header" ||
         item.marker === "working-header" ||
         item.marker === "snoozed-header" ||
         item.marker === "settled-header"
@@ -285,9 +300,12 @@ export function resolveSidebarDropVerb(
   from: SidebarSection,
   to: SidebarSection | null,
 ): SidebarDropVerb | null {
-  if (to === null || to === from || to === "working" || to === "snoozed") return null;
+  if (to === null || to === from || to === "quick" || to === "working" || to === "snoozed") {
+    return null;
+  }
   if (to === "pinned") return "pin";
   if (to === "settled") return "settle";
+  if (from === "quick") return null;
   if (from === "pinned") return "unpin";
   if (from === "settled") return "unsettle";
   return "wake";
@@ -371,6 +389,7 @@ export function planSidebarThreadDrop(input: {
     activeReorderableKeys,
   } = input;
   if (activeSection === "working") return { kind: "none" };
+  if (activeSection === "quick" && target.section === "active") return { kind: "none" };
   if (input.supportsSettlement === false && (target.section === "settled" || activeSettled)) {
     return { kind: "none" };
   }
