@@ -340,6 +340,9 @@ it.effect("sql: the user-authored message time ignores agent notifications", () 
       DateTime.formatIso(shellThread!.latestUserAuthoredMessageAt!),
       DateTime.formatIso(written),
     );
+    assert.equal(shellThread!.userAuthoredMessageCount, 1);
+    yield* message("follow-up", "user", "web", now);
+    assert.equal((yield* store.getThreadShell(threadId))?.userAuthoredMessageCount, 2);
   }).pipe(Effect.provide(layerSql)),
 );
 

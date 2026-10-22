@@ -1,5 +1,6 @@
 import { ThreadThumbnailSettings } from "./ThreadThumbnailSettings";
 import { NotificationSettings, TestNotificationSettings } from "./NotificationSettings";
+import { QuickThreadsSettings } from "./QuickThreadsSettings";
 import { TrackpadSwipeSettings } from "./TrackpadSwipeSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { CheckIcon } from "lucide-react";
@@ -857,6 +858,8 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+
+        <QuickThreadsSettings />
       </SettingsSection>
 
       <ThreadThumbnailSettings />
