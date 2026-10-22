@@ -99,7 +99,7 @@ import {
 import { installFileEditorDismissal } from "./fileEditorDismissal";
 import {
   FILE_LINK_REVEAL_ATTRIBUTE,
-  FILE_LINK_REVEAL_UNSAFE_CSS,
+  FILE_SOURCE_UNSAFE_CSS,
   FILE_SURFACE_SUBHEADER_CLASS,
   FileSurfaceAction,
   FileSurfaceFailure,
@@ -107,6 +107,7 @@ import {
 } from "./fileSurfaceChrome";
 import SourceFilePreview from "./ReadOnlySourcePreview";
 import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
+import { useWordOccurrenceHighlights } from "./wordOccurrenceHighlights";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
 import { projectFileCacheKey } from "./fileContentRevision";
 import {
@@ -690,6 +691,10 @@ function EditableFileSurface({
   const { ready: editable, onPostRender: onEditablePostRender } =
     useEditableAfterHighlight(externalFile);
   const editorRef = useRef<Editor<"file", FileCommentAnnotationGroup, undefined> | null>(null);
+  useWordOccurrenceHighlights(
+    surfaceRef,
+    () => editorRef.current?.getText() ?? editedContents ?? externalFile.contents,
+  );
   const editorOptions: EditorOptions<"file", FileCommentAnnotationGroup, undefined> = {
     onAttach: (editor) => {
       editorRef.current = editor;
@@ -874,7 +879,7 @@ function EditableFileSurface({
               theme: resolveDiffThemeName(resolvedTheme),
               preferredHighlighter: PREFERRED_HIGHLIGHTER,
               themeType: resolvedTheme,
-              unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
+              unsafeCSS: FILE_SOURCE_UNSAFE_CSS,
               onPostRender: handlePostRender,
             }}
             selectedLines={selectedRange}
