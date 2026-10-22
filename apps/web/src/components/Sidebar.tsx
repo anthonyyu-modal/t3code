@@ -191,6 +191,7 @@ import {
   ADD_PROJECT_SCOPE_ITEM_VALUE,
   filterSidebarProjectScopeItems,
   firstValidTimestampMs,
+  isQuickSidebarThread,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -234,6 +235,7 @@ import {
 } from "./Sidebar.snooze";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { deriveProviderEntriesByEnvironment } from "../providerInstances";
+import { useQuickThreadMaxMessages } from "./settings/quickThreadMaxMessages";
 import { useStableCallback } from "../hooks/useStableCallback";
 import {
   resolveSidebarRouteReveal,
@@ -347,6 +349,7 @@ const SETTLED_TAIL_PAGE_COUNT = 25;
 const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const WORKING_SHELF_EXPANDED_KEY = "t3code:sidebar:working-expanded";
+const QUICK_SHELF_EXPANDED_KEY = "t3code:sidebar:quick-expanded";
 
 const inboxReturns = createInboxReturnTracker();
 
@@ -372,6 +375,7 @@ interface SidebarThreadPartitionInput {
   readonly workingShelfEnabled: boolean;
   /** Boring mode: folders list active threads by the user's latest message. */
   readonly sortActiveBySend: boolean;
+  readonly quickThreadMaxMessages: number | null;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -460,6 +464,7 @@ function useSidebarThreads(input: {
   // Folders already separate the work, so boring mode has no Working shelf.
   const workingShelfEnabled =
     useClientSettings((s) => s.sidebarWorkingShelfEnabled) && folderGroups === null;
+  const [quickThreadMaxMessages] = useQuickThreadMaxMessages();
   const inboxReturnsVersion = useSyncExternalStore(
     inboxReturns.subscribe,
     inboxReturns.getSnapshot,
@@ -480,6 +485,12 @@ function useSidebarThreads(input: {
   const [workingShelfExpanded, setWorkingShelfExpanded] = useLocalStorage(
     WORKING_SHELF_EXPANDED_KEY,
     false,
+    Schema.Boolean,
+  );
+  // Quick threads are still live work, so unlike the other shelves this one starts open.
+  const [quickShelfExpanded, setQuickShelfExpanded] = useLocalStorage(
+    QUICK_SHELF_EXPANDED_KEY,
+    true,
     Schema.Boolean,
   );
   // Shared with the old per-project sidebar, so folders keep their open state.
@@ -504,11 +515,18 @@ function useSidebarThreads(input: {
     optimisticDrop,
     workingShelfEnabled,
     sortActiveBySend: folderGroups !== null,
+    quickThreadMaxMessages,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
-  const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
-    partition;
+  const {
+    pinnedThreads,
+    activeThreads,
+    quickThreads,
+    workingThreads,
+    snoozedThreads,
+    settledThreads,
+  } = partition;
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
@@ -561,11 +579,15 @@ function useSidebarThreads(input: {
               : EMPTY_THREADS,
           };
         });
+  const visibleQuickThreads = quickShelfExpanded
+    ? quickThreads
+    : routeThreadOnly(quickThreads, routeRowThreadKey);
   const orderedThreads = [
     ...pinnedThreads,
     ...(projectFolders === null
       ? activeThreads
       : projectFolders.flatMap((folder) => folder.threads)),
+    ...visibleQuickThreads,
     ...visibleWorkingThreads,
     ...visibleSnoozedThreads,
     ...renderedSettledThreads,
@@ -574,6 +596,7 @@ function useSidebarThreads(input: {
   for (const [list, section] of [
     [pinnedThreads, "pinned"],
     [activeThreads, "active"],
+    [quickThreads, "quick"],
     [workingThreads, "working"],
     [snoozedThreads, "snoozed"],
     [settledThreads, "settled"],
@@ -587,6 +610,7 @@ function useSidebarThreads(input: {
     searchableThreads: [
       ...pinnedThreads,
       ...activeThreads,
+      ...quickThreads,
       ...workingThreads,
       ...snoozedThreads,
       ...settledThreads,
@@ -611,9 +635,12 @@ function useSidebarThreads(input: {
       const keys = sidebarFolderExpansionKeys(group);
       setProjectExpanded(keys, !resolveProjectExpanded(projectExpandedById, keys));
     },
+    quickShelfExpanded,
+    toggleQuickShelf: () => setQuickShelfExpanded((value) => !value),
     renderedSettledThreads,
     visibleSnoozedThreads,
     visibleWorkingThreads,
+    visibleQuickThreads,
     orderedThreadKeys: orderedThreads.map(threadShellKey),
     threadByKey: new Map(orderedThreads.map((thread) => [threadShellKey(thread), thread] as const)),
     settledThreadKeys: new Set(settledThreads.map(threadShellKey)),
@@ -642,18 +669,22 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     optimisticDrop,
     workingShelfEnabled,
     sortActiveBySend,
+    quickThreadMaxMessages,
   } = input;
   const preciseNow = new Date().toISOString();
   const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
+  const quick: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
   const inbox = (thread: EnvironmentThreadShell, manuallyMoved = false) =>
     workingShelfEnabled &&
     (manuallyMoved ? isThreadWorking(thread) : inboxObservation.isWorking(thread))
       ? working
-      : active;
+      : isQuickSidebarThread(thread, quickThreadMaxMessages)
+        ? quick
+        : active;
   const snoozed: EnvironmentThreadShell[] = [];
   const settled: EnvironmentThreadShell[] = [];
   const { draggableThreadKeys, activeReorderableThreadKeys } = resolveSidebarReorderableThreadKeys({
@@ -723,6 +754,9 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
             preferredIds: optimisticDrop.order,
             getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
           }),
+    // Quick rows cannot be reordered by hand, so the latest activity, usually
+    // the last finished run, goes first.
+    quickThreads: sortInboxThreadsByReturn(quick, inboxObservation.returnedAt),
     workingThreads: sortWorkingThreadsBySend(working),
     snoozedThreads: snoozed.toSorted(
       (left, right) =>
@@ -777,10 +811,10 @@ function isOptimisticDropReleased(input: {
       : thread.pinnedAt != null
         ? "pinned"
         : "active";
-  if (
-    canonicalSection !== optimisticDrop.sourceSection &&
-    canonicalSection !== optimisticDrop.section
-  ) {
+  // The Quick shelf is a view of Active, which is all the server knows about.
+  const sourceSection =
+    optimisticDrop.sourceSection === "quick" ? "active" : optimisticDrop.sourceSection;
+  if (canonicalSection !== sourceSection && canonicalSection !== optimisticDrop.section) {
     return true;
   }
   if (optimisticDrop.order === null) {
@@ -1334,6 +1368,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     draggableThreadKeys,
     activeReorderableThreadKeys,
     activeThreads,
+    quickThreads,
     workingThreads,
     snoozedThreads,
     settledThreads,
@@ -1352,9 +1387,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     toggleWorkingShelf,
     projectFolders,
     toggleProjectFolder,
+    quickShelfExpanded,
+    toggleQuickShelf,
     renderedSettledThreads,
     visibleSnoozedThreads,
     visibleWorkingThreads,
+    visibleQuickThreads,
     orderedThreadKeys,
     threadByKey,
     settledThreadKeys,
@@ -1999,6 +2037,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       !hasProjectFolders &&
       pinnedThreads.length +
         activeThreads.length +
+        quickThreads.length +
         workingThreads.length +
         snoozedThreads.length +
         settledCount ===
@@ -2013,6 +2052,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const activeRows = rowsOf(activeThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
     items.push(...activeRows);
+    if (quickThreads.length > 0) {
+      items.push({ kind: "marker", marker: "quick-header" });
+      items.push(...rowsOf(visibleQuickThreads, "quick"));
+    }
     if (workingThreads.length > 0) {
       items.push({ kind: "marker", marker: "working-header" });
       items.push(...rowsOf(visibleWorkingThreads, "working"));
@@ -2105,6 +2148,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     settledExpanded: settledShelfExpanded,
     settledVisibleCount,
     routeThreadKey: routeRowThreadKey,
+    quickThreadCount: quickThreads.length,
     snoozedThreadCount: snoozedThreads.length,
   });
   const draggedThreadKey = dragState?.activeKey;
@@ -3416,6 +3460,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           visibleDraftSessionCount === 0 &&
           pinnedThreads.length +
             activeThreads.length +
+            quickThreads.length +
             workingThreads.length +
             snoozedThreads.length ===
             0 &&
@@ -3506,7 +3551,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           scopeThreadRef(thread.environmentId, thread.id),
                         );
                         const isCard =
-                          section === "active" || section === "pinned" || section === "working";
+                          section === "active" ||
+                          section === "pinned" ||
+                          section === "quick" ||
+                          section === "working";
                         const rowVariant = folderRow
                           ? folderRowsMultiline
                             ? "folder-multiline"
@@ -3528,7 +3576,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             variant={rowVariant}
                             navigationParent={
                               folderRow ??
-                              (section === "working" ||
+                              (section === "quick" ||
+                              section === "working" ||
                               section === "snoozed" ||
                               section === "settled"
                                 ? `shelf:${section}`
@@ -3704,12 +3753,28 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               />,
                             );
                             break;
+                          case "quick-header":
+                            items.push(
+                              <SidebarSectionHeader
+                                key="quick-shelf-header"
+                                marker="quick-header"
+                                className="mt-auto"
+                                // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+                                label="Quick"
+                                count={quickThreads.length}
+                                toggle={{
+                                  expanded: quickShelfExpanded,
+                                  onToggle: toggleQuickShelf,
+                                }}
+                              />,
+                            );
+                            break;
                           case "working-header":
                             items.push(
                               <SidebarSectionHeader
                                 key="working-shelf-header"
                                 marker="working-header"
-                                className="mt-auto"
+                                className={cn(quickThreads.length === 0 && "mt-auto")}
                                 label={gt("Working", { $context: "sidebar section" })}
                                 count={workingThreads.length}
                                 toggle={{
@@ -3724,7 +3789,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               <SidebarSectionHeader
                                 key="snoozed-shelf-header"
                                 marker="snoozed-header"
-                                className={cn(workingThreads.length === 0 && "mt-auto")}
+                                className={cn(
+                                  quickThreads.length + workingThreads.length === 0 && "mt-auto",
+                                )}
                                 label={gt("Snoozed", { $context: "sidebar section" })}
                                 count={snoozedThreads.length}
                                 toggle={{
@@ -3740,7 +3807,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 key="settled-shelf-header"
                                 marker="settled-header"
                                 className={cn(
-                                  workingThreads.length + snoozedThreads.length === 0 && "mt-auto",
+                                  quickThreads.length +
+                                    workingThreads.length +
+                                    snoozedThreads.length ===
+                                    0 && "mt-auto",
                                 )}
                                 label={gt("Settled", { $context: "sidebar section" })}
                                 count={settledCount}
