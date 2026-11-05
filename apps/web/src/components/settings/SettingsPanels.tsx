@@ -105,6 +105,7 @@ import {
   SettingsSection,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
+import { forkSetting } from "./forkSetting";
 import { BackgroundActivitySettingsRow } from "./BackgroundActivitySettings";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { PullRequestLinksOpenInAppSetting } from "./IntegrationsSettings";
@@ -579,6 +580,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.threadTitleInstructions !== DEFAULT_UNIFIED_SETTINGS.threadTitleInstructions
       ? ["Thread title instructions"]
       : []),
+    ...(settings.autoRegenerateThreadTitles !== DEFAULT_UNIFIED_SETTINGS.autoRegenerateThreadTitles
+      ? ["Regenerate titles after each turn"]
+      : []),
     ...getChangedBrowserSettingLabels(settings),
     ...(settings.enableAgentBrowserAccess !== DEFAULT_UNIFIED_SETTINGS.enableAgentBrowserAccess
       ? ["Agent browser access"]
@@ -685,6 +689,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit,
       textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
       threadTitleInstructions: DEFAULT_UNIFIED_SETTINGS.threadTitleInstructions,
+      autoRegenerateThreadTitles: DEFAULT_UNIFIED_SETTINGS.autoRegenerateThreadTitles,
       fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
       fontFamilyComposer: DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer,
       fontFamilyCode: DEFAULT_UNIFIED_SETTINGS.fontFamilyCode,
@@ -1889,6 +1894,37 @@ export function ThreadsSettingsPanel() {
                 ) : null}
               </div>
             )
+          }
+        />
+        <SettingsRow
+          serverScoped
+          settingKeys={["autoRegenerateThreadTitles"]}
+          {...forkSetting("auto-regenerate-thread-titles")}
+          description="Regenerate a thread's title with the text generation model each time a turn completes, so it follows the conversation. Replaces titles you set by hand."
+          resetAction={
+            hasServerTargets &&
+            settings.autoRegenerateThreadTitles !==
+              DEFAULT_UNIFIED_SETTINGS.autoRegenerateThreadTitles ? (
+              <SettingResetButton
+                label="regenerate titles after each turn"
+                onClick={() =>
+                  updateSettings({
+                    autoRegenerateThreadTitles: DEFAULT_UNIFIED_SETTINGS.autoRegenerateThreadTitles,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <ScopedSwitch
+              settingKeys={["autoRegenerateThreadTitles"]}
+              checked={settings.autoRegenerateThreadTitles}
+              disabled={!hasServerTargets}
+              onCheckedChange={(checked) =>
+                updateSettings({ autoRegenerateThreadTitles: Boolean(checked) })
+              }
+              aria-label="Regenerate titles after each turn"
+            />
           }
         />
         <AdvancedSettings
