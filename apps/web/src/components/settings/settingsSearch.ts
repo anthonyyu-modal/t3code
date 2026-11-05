@@ -851,6 +851,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["generated thread titles source control content default provider"],
   },
   {
+    id: "auto-regenerate-thread-titles",
+    title: "Regenerate titles after each turn",
+    to: "/settings/threads",
+    scope: "project-defaults",
+    searchTerms: ["automatic generated thread titles rename refresh update every turn run fork"],
+  },
+  {
     id: "thread-title-instructions",
     title: "Thread title instructions",
     to: "/settings/threads",
