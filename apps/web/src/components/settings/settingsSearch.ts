@@ -977,6 +977,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("generated thread titles source control content default provider")],
   },
   {
+    id: "auto-regenerate-thread-titles",
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+    title: "Regenerate titles after each turn",
+    to: "/settings/threads",
+    scope: "project-defaults",
+    searchTerms: ["automatic generated thread titles rename refresh update every turn run fork"],
+  },
+  {
     id: "thread-title-instructions",
     title: msg("Thread title instructions"),
     to: "/settings/threads",
