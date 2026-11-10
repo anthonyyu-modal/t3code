@@ -33,8 +33,8 @@ interface ChatShortcutsInput {
   readonly enabled: boolean;
   /**
    * A side chat inside another chat leaves the window to the outer chat. It listens on its
-   * side chat pane, around `composerElement`: find and Escape closing it anywhere in the pane,
-   * composer chords only inside `composerElement`.
+   * side chat pane, around `composerElement`: find, citing a selection and Escape closing it
+   * anywhere in the pane, other composer chords only inside `composerElement`.
    */
   readonly embedded?: boolean;
   readonly composerElement?: HTMLElement | null;
@@ -78,6 +78,22 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     if (event.defaultPrevented && terminalFocusOwner === null) return;
     const shortcutContext = input.getShortcutContext(event.target);
 
+    // Shortcuts run ahead of type-to-focus, so single-key bindings such as a cite key work.
+    const command = resolveChatShortcutCommand(event, keybindings, input.scriptKeybindings, {
+      context: shortcutContext,
+    });
+    if (command && !(inSideChatPane && !SIDE_CHAT_PANE_COMMANDS.has(command))) {
+      const run =
+        input.commands[command] ??
+        composerShortcutCommands(input.composerRef, input.branchToolbarRef)[command] ??
+        input.fallback(command);
+      if (run && run({ event, terminalFocusOwner }) !== false) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+    }
+
     if (
       !inSideChatPane &&
       !shortcutContext.terminalFocus &&
@@ -87,20 +103,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     ) {
       event.preventDefault();
       event.stopPropagation();
-      return;
     }
-
-    const command = resolveChatShortcutCommand(event, keybindings, input.scriptKeybindings, {
-      context: shortcutContext,
-    });
-    if (!command || (inSideChatPane && !SIDE_CHAT_PANE_COMMANDS.has(command))) return;
-    const run =
-      input.commands[command] ??
-      composerShortcutCommands(input.composerRef, input.branchToolbarRef)[command] ??
-      input.fallback(command);
-    if (!run || run({ event, terminalFocusOwner }) === false) return;
-    event.preventDefault();
-    event.stopPropagation();
   });
   const dismissFind = useEffectEvent((event: KeyboardEvent) => {
     if (
@@ -127,7 +130,10 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     });
     let run: ChatShortcutHandler | undefined;
     if (command === "chat.find") run = input.commands[command];
-    else if (command && event.target instanceof Node && composerElement?.contains(event.target)) {
+    else if (
+      command === "composer.citeSelection" ||
+      (command && event.target instanceof Node && composerElement?.contains(event.target))
+    ) {
       run = composerShortcutCommands(input.composerRef, input.branchToolbarRef)[command];
     }
     if (!run || run({ event, terminalFocusOwner: null }) === false) return;
