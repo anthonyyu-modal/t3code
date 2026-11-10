@@ -71,6 +71,11 @@ export function startThreadNotifications(
     string,
     { environmentId: EnvironmentId; threadId: ThreadId; notification: Notification }
   >();
+  // Focused notifications stay off the dock badge so focus events leave them in Notification Center.
+  const mirrored = new Map<
+    string,
+    { environmentId: EnvironmentId; threadId: ThreadId; notification: Notification }
+  >();
   const watched = new Map<EnvironmentId, WatchedEnvironment>();
 
   const trackNotification = (
@@ -81,6 +86,16 @@ export function startThreadNotifications(
     pending.get(notification.tag)?.notification.close();
     pending.set(notification.tag, { environmentId, threadId, notification });
     setNotificationBadge(pending.size);
+  };
+  const closeMirroredTag = (tag: string) => {
+    const entry = mirrored.get(tag);
+    if (!entry) return;
+    mirrored.delete(tag);
+    entry.notification.close();
+  };
+  const clearMirrored = () => {
+    for (const { notification } of mirrored.values()) notification.close();
+    mirrored.clear();
   };
   // Toast ids by thread key, so hiding or opening a thread, or removing its environment, closes them.
   const openToasts = new Map<string, Array<ToastId>>();
@@ -123,11 +138,63 @@ export function startThreadNotifications(
       pending.delete(tag);
     }
     if (count !== pending.size) setNotificationBadge(pending.size);
+    for (const [tag, entry] of mirrored) {
+      if (!shouldClose(threadKey(entry))) continue;
+      entry.notification.close();
+      mirrored.delete(tag);
+    }
   };
   const clearPending = () => {
     for (const { notification } of pending.values()) notification.close();
     pending.clear();
     setNotificationBadge(0);
+  };
+
+  const showSystemNotification = (
+    environmentId: EnvironmentId,
+    thread: EnvironmentThreadShell,
+    title: string,
+    kind: ThreadNotificationKind,
+    options: { readonly badged: boolean },
+  ) => {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const tag = threadNotificationTag(environmentId, thread.id);
+    const key = threadKey({ environmentId, threadId: thread.id });
+    closeMirroredTag(tag);
+    try {
+      const notification = new Notification(title, {
+        body: thread.title,
+        tag,
+        silent: true,
+        // Windows drops clicks after a toast moves into Notification Center.
+        requireInteraction: kind === "completion" && isWindowsPlatform(navigator.platform),
+      });
+      if (options.badged) {
+        trackNotification(environmentId, thread.id, notification);
+      } else {
+        mirrored.set(tag, { environmentId, threadId: thread.id, notification });
+        notification.addEventListener(
+          "close",
+          () => {
+            if (mirrored.get(tag)?.notification === notification) mirrored.delete(tag);
+          },
+          { once: true },
+        );
+      }
+      notification.addEventListener("click", () => {
+        if (mirrored.get(tag)?.notification === notification) mirrored.delete(tag);
+        notification.close();
+        closeToasts((open) => open === key);
+        window.focus();
+        void window.desktopBridge?.revealWindow().catch(() => undefined);
+        void router.navigate({
+          to: "/$environmentId/$threadId",
+          params: { environmentId, threadId: thread.id },
+        });
+      });
+    } catch {
+      // Some browsers expose Notification but reject desktop presentation.
+    }
   };
 
   const present = (
@@ -142,7 +209,11 @@ export function startThreadNotifications(
         .has(threadKey({ environmentId, threadId: thread.id }))
     )
       return;
-    const { notificationMode: mode, inAppNotificationsEnabled } = getClientSettings();
+    const {
+      notificationMode: mode,
+      inAppNotificationsEnabled,
+      inAppSystemNotificationsEnabled,
+    } = getClientSettings();
     const active = activeThread();
     const title =
       kind === "completion"
@@ -161,13 +232,14 @@ export function startThreadNotifications(
         hasNotificationSound(getClientSettings().notificationMode),
       );
     }
+    const focused = document.visibilityState === "visible" && document.hasFocus();
     if (
       inAppNotificationsEnabled &&
-      document.visibilityState === "visible" &&
-      document.hasFocus() &&
+      focused &&
       (active.environmentId !== environmentId || active.threadId !== thread.id)
     ) {
       const toastKey = threadKey({ environmentId, threadId: thread.id });
+      const tag = threadNotificationTag(environmentId, thread.id);
       const toastId: ToastId = toastManager.add({
         onRemove: (): void => forgetToast(toastKey, toastId),
         type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
@@ -192,6 +264,7 @@ export function startThreadNotifications(
           children: m(msg("Open thread")),
           onClick: () => {
             toastManager.close(toastId);
+            closeMirroredTag(tag);
             void router.navigate({
               to: "/$environmentId/$threadId",
               params: { environmentId, threadId: thread.id },
@@ -200,36 +273,13 @@ export function startThreadNotifications(
         },
       });
       openToasts.set(toastKey, [...(openToasts.get(toastKey) ?? []), toastId]);
+      if (inAppSystemNotificationsEnabled) {
+        showSystemNotification(environmentId, thread, title, kind, { badged: false });
+      }
       return;
     }
-    if (
-      !hasDesktopNotifications(mode) ||
-      (document.visibilityState === "visible" && document.hasFocus()) ||
-      typeof Notification === "undefined" ||
-      Notification.permission !== "granted"
-    )
-      return;
-    try {
-      const notification = new Notification(title, {
-        body: thread.title,
-        tag: threadNotificationTag(environmentId, thread.id),
-        silent: true,
-        // Windows drops clicks after a toast moves into Notification Center.
-        requireInteraction: kind === "completion" && isWindowsPlatform(navigator.platform),
-      });
-      trackNotification(environmentId, thread.id, notification);
-      notification.addEventListener("click", () => {
-        notification.close();
-        window.focus();
-        void window.desktopBridge?.revealWindow().catch(() => undefined);
-        void router.navigate({
-          to: "/$environmentId/$threadId",
-          params: { environmentId, threadId: thread.id },
-        });
-      });
-    } catch {
-      // Some browsers expose Notification but reject desktop presentation.
-    }
+    if (!hasDesktopNotifications(mode) || focused) return;
+    showSystemNotification(environmentId, thread, title, kind, { badged: true });
   };
 
   const observeThreads = (
@@ -386,6 +436,11 @@ export function startThreadNotifications(
       pending.delete(tag);
     }
     if (count !== pending.size) setNotificationBadge(pending.size);
+    for (const [tag, entry] of mirrored) {
+      if (activeIds.has(entry.environmentId)) continue;
+      entry.notification.close();
+      mirrored.delete(tag);
+    }
   };
 
   // Listeners that only exist for some notification modes, rebuilt when the mode changes.
@@ -423,6 +478,8 @@ export function startThreadNotifications(
   };
 
   const onSettings = () => {
+    const { inAppNotificationsEnabled, inAppSystemNotificationsEnabled } = getClientSettings();
+    if (!inAppNotificationsEnabled || !inAppSystemNotificationsEnabled) clearMirrored();
     applyMode();
     syncEnvironments();
   };
@@ -449,6 +506,7 @@ export function startThreadNotifications(
     unsubscribeRoute();
     for (const entry of watched.values()) entry.unsubscribe();
     watched.clear();
+    clearMirrored();
     stopModeListeners();
     closeToasts(() => true);
   };
