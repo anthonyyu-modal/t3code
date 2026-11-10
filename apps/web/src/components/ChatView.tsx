@@ -136,6 +136,7 @@ import {
   useState,
 } from "react";
 import { BackgroundThreadContext } from "./chat/backgroundThread";
+import { hasActiveAssistantSelection } from "./chat/AssistantSelectionToolbar";
 import { WorkspaceMutationIdContext } from "./chat/ChatMarkdownMedia";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
@@ -2753,6 +2754,7 @@ export default function ChatView(props: ChatViewProps) {
     composerFocus:
       document.activeElement?.getAttribute("data-testid") === "composer-editor" &&
       isInSideChatPane(document.activeElement) === embedded,
+    assistantSelection: hasActiveAssistantSelection(),
     draftThreadRoute: routeKind === "draft",
     turnRunning: phase === "running" || phase === "connecting",
     composerRequiresModifier: composerRequiresModifier(settings.sendShortcut, promptRef.current),
