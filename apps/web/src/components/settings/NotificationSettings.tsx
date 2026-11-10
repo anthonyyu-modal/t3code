@@ -11,10 +11,30 @@ import {
 } from "../../threadNotifications";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Switch } from "../ui/switch";
 import { forkSetting } from "./forkSetting";
 import { SettingsRow } from "./settingsLayout";
 import { useSearchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
+
+/** Asks for notification permission; returns why it was not granted, or `null` once it is. */
+async function requestDesktopNotificationPermission(
+  setRequesting: (requesting: boolean) => void,
+): Promise<string | null> {
+  if (typeof Notification === "undefined" || !window.isSecureContext) {
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+    return "Notifications need a supported browser over HTTPS, or the desktop app.";
+  }
+  if (Notification.permission === "granted") return null;
+  const retry = "Allow notifications in your browser or system settings, then try again.";
+  if (Notification.permission === "denied") return retry;
+  setRequesting(true);
+  const permission = await settlePromise(() => Notification.requestPermission());
+  setRequesting(false);
+  // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+  if (permission._tag === "Failure") return "Notifications are unavailable in this browser.";
+  return permission.value === "granted" ? null : retry;
+}
 
 export function NotificationSettings() {
   const searchableSetting = useSearchableSetting();
@@ -127,6 +147,50 @@ export function TestNotificationSettings() {
           {/* oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md) */}
           {"Send test"}
         </Button>
+      }
+    />
+  );
+}
+
+export function InAppSystemNotificationSettings() {
+  const enabled = useScopedSettings(
+    (settings) => settings.inAppNotificationsEnabled && settings.inAppSystemNotificationsEnabled,
+  );
+  const updateSettings = useUpdateScopedSettings();
+  const [permissionMessage, setPermissionMessage] = useState<string | null>(null);
+  const [requesting, setRequesting] = useState(false);
+
+  return (
+    <SettingsRow
+      {...forkSetting("in-app-system-notifications")}
+      description={
+        permissionMessage ??
+        // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+        "Also send a system notification when showing an in-app toast, so you still have one to click after the toast disappears."
+      }
+      control={
+        <Switch
+          checked={enabled}
+          disabled={requesting}
+          // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+          aria-label="System notifications for in-app alerts"
+          onCheckedChange={async (checked) => {
+            setPermissionMessage(null);
+            if (!checked) {
+              updateSettings({ inAppSystemNotificationsEnabled: false });
+              return;
+            }
+            const denial = await requestDesktopNotificationPermission(setRequesting);
+            if (denial !== null) {
+              setPermissionMessage(denial);
+              return;
+            }
+            updateSettings({
+              inAppNotificationsEnabled: true,
+              inAppSystemNotificationsEnabled: true,
+            });
+          }}
+        />
       }
     />
   );

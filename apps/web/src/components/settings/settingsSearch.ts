@@ -793,6 +793,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "in-app-system-notifications",
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+    title: "System notifications for in-app alerts",
+    to: "/settings/general",
+    searchTerms: [
+      "notification toast popup system desktop macos notification center banner click fork",
+    ],
+  },
+  {
     id: "time-format",
     title: msg("Time format"),
     to: "/settings/general",
