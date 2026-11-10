@@ -8,18 +8,19 @@ To free a default shortcut, choose **Unassign** from its row menu (**Reset to de
 
 ## Common composer shortcuts
 
-| Action                      | Default           | Notes                                                              |
-| --------------------------- | ----------------- | ------------------------------------------------------------------ |
-| Start / finish dictation    | `mod+shift+d`     | `Esc` discards. See [Voice input](./voice-input.md).               |
-| Opposite queue/steer action | `mod+Enter`       | Uses the non-default follow-up behavior while a turn runs.         |
-| Start thread in background  | `mod+Alt+Enter`   | Also `mod+Enter` in a new thread; opens a fresh draft immediately. |
-| Send first queued message   | `mod+Shift+Enter` | Steers if running, or starts a turn if stopped.                    |
-| Pick model                  | `mod+shift+m`     | `mod+shift+up/down` switches providers inside the picker.          |
-| Pick host / environment     | `mod+shift+h`     | Bind **Composer: Cycle Host** to step without a menu.              |
-| Pick effort                 | `mod+shift+e`     | Bind **Increase/Decrease Effort** to step without a menu.          |
-| Pick permissions            | `mod+shift+a`     |                                                                    |
-| Pick workspace mode         | `mod+shift+x`     | `mod+shift+l` reuses the previous worktree directly.               |
-| Pick Git branch             | `mod+shift+g`     |                                                                    |
+| Action                      | Default           | Notes                                                               |
+| --------------------------- | ----------------- | ------------------------------------------------------------------- |
+| Start / finish dictation    | `mod+shift+d`     | `Esc` discards. See [Voice input](./voice-input.md).                |
+| Opposite queue/steer action | `mod+Enter`       | Uses the non-default follow-up behavior while a turn runs.          |
+| Start thread in background  | `mod+Alt+Enter`   | Also `mod+Enter` in a new thread; opens a fresh draft immediately.  |
+| Send first queued message   | `mod+Shift+Enter` | Steers if running, or starts a turn if stopped.                     |
+| Pick model                  | `mod+shift+m`     | `mod+shift+up/down` switches providers inside the picker.           |
+| Pick host / environment     | `mod+shift+h`     | Bind **Composer: Cycle Host** to step without a menu.               |
+| Pick effort                 | `mod+shift+e`     | Bind **Increase/Decrease Effort** to step without a menu.           |
+| Pick permissions            | `mod+shift+a`     |                                                                     |
+| Pick workspace mode         | `mod+shift+x`     | `mod+shift+l` reuses the previous worktree directly.                |
+| Pick Git branch             | `mod+shift+g`     |                                                                     |
+| Cite selected text          | `mod+shift+.`     | Opens the quote's comment box. Rebind **Composer: Cite Selection**. |
 
 Configure whether `Enter` sends or requires `mod+Enter` in **Settings → Chat → Send shortcut** (`Shift+Enter` always inserts a newline).
 
@@ -64,7 +65,7 @@ Join modifiers and keys with `+` (`mod`, `cmd`/`meta`, `ctrl`/`control`, `alt`/`
 
 ### When conditions
 
-Available context keys: `terminalFocus`, `terminalOpen`, `previewFocus`, `previewOpen`, `rightPanelOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`, `turnRunning`, `composerEmpty`, `editableFocus`, `isWeb`, `isDesktop`. Unknown keys evaluate to `false`.
+Available context keys: `terminalFocus`, `terminalOpen`, `previewFocus`, `previewOpen`, `rightPanelOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `assistantSelection`, `draftThreadRoute`, `turnRunning`, `composerEmpty`, `editableFocus`, `isWeb`, `isDesktop`. `assistantSelection` is true while text inside a visible assistant response is selected. Unknown keys evaluate to `false`.
 
 Combine with `!`, `&&`, `||`, and parentheses:
 
