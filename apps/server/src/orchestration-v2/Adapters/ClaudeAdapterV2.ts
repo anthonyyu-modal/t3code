@@ -1689,6 +1689,9 @@ export const layerQueryRunner: Layer.Layer<
                 CLAUDE_CODE_RESUME_REASON: "user_resume",
               }
             : {}),
+          // Makes the CLI advertise the MCP Apps extension. Without it, servers such as Datadog
+          // list `_meta.ui` but return text-only results, and the app T3 renders from them is blank.
+          CLAUDE_CODE_MCP_APPS_HOST: "1",
           [PortScanner.AGENT_THREAD_ENV]: input.threadId,
         },
       };
