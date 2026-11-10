@@ -191,6 +191,12 @@ describe("searchSettings", () => {
     expect(searchSettings("toggle sidebar")[0]?.id).toBe("keybinding-sidebar.toggle");
     expect(searchSettings("sidebar.toggle")[0]?.id).toBe("keybinding-sidebar.toggle");
     expect(searchSettings("mod+b")[0]?.id).toBe("keybinding-sidebar.toggle");
+    expect(searchSettings("mod+shift+.")[0]?.id).toBe("keybinding-composer.citeSelection");
+    expect(
+      searchSettings("cite comment").some(
+        (item) => item.id === "keybinding-composer.citeSelection",
+      ),
+    ).toBe(true);
     expect(searchSettings("copy link")[0]).toMatchObject({
       id: "keybinding-thread.copyReference",
       to: "/settings/keybindings",

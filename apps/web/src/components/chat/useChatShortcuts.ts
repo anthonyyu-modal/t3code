@@ -69,6 +69,21 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     if (event.defaultPrevented && terminalFocusOwner === null) return;
     const shortcutContext = input.getShortcutContext(event.target);
 
+    const command = resolveChatShortcutCommand(event, keybindings, input.scriptKeybindings, {
+      context: shortcutContext,
+    });
+    if (command) {
+      const run =
+        input.commands[command] ??
+        composerShortcutCommands(input.composerRef, input.branchToolbarRef)[command] ??
+        input.fallback(command);
+      if (run && run({ event, terminalFocusOwner }) !== false) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+    }
+
     if (
       !shortcutContext.terminalFocus &&
       !shortcutContext.modelPickerOpen &&
@@ -77,20 +92,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     ) {
       event.preventDefault();
       event.stopPropagation();
-      return;
     }
-
-    const command = resolveChatShortcutCommand(event, keybindings, input.scriptKeybindings, {
-      context: shortcutContext,
-    });
-    if (!command) return;
-    const run =
-      input.commands[command] ??
-      composerShortcutCommands(input.composerRef, input.branchToolbarRef)[command] ??
-      input.fallback(command);
-    if (!run || run({ event, terminalFocusOwner }) === false) return;
-    event.preventDefault();
-    event.stopPropagation();
   });
   const dismissFind = useEffectEvent((event: KeyboardEvent) => {
     if (
@@ -123,10 +125,12 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- attaches keydown listeners for chat shortcuts and find dismissal: on the window, or on an embedded chat's composer
   useEffect(() => {
     if (embedded) {
-      if (composerElement === null) return;
+      const scopeElement =
+        composerElement?.closest<HTMLElement>("[data-side-chat-pane]") ?? composerElement;
+      if (scopeElement === null) return;
       const onComposerKeyDown = (event: KeyboardEvent) => handleComposerShortcut(event);
-      composerElement.addEventListener("keydown", onComposerKeyDown, true);
-      return () => composerElement.removeEventListener("keydown", onComposerKeyDown, true);
+      scopeElement.addEventListener("keydown", onComposerKeyDown, true);
+      return () => scopeElement.removeEventListener("keydown", onComposerKeyDown, true);
     }
     const onKeyDownCapture = (event: KeyboardEvent) => handleShortcut(event);
     const onKeyDown = (event: KeyboardEvent) => dismissFind(event);

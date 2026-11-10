@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import {
   ASSISTANT_CITATION_MAX_TEXT_LENGTH,
   MessageId,
@@ -5,8 +6,9 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { QuoteIcon } from "lucide-react";
-import { use, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { use, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { shortcutLabelForCommand } from "~/keybindings";
 import {
   captureAssistantTextSelection,
   type AssistantCitationSourceAnchor,
@@ -17,8 +19,128 @@ import {
   resolveSelectionActionPosition,
   type SelectionActionPoint,
 } from "~/lib/selectionActions";
+import { primaryServerKeybindingsAtom } from "~/state/server";
 import { Button } from "../ui/button";
+import { toastManager } from "../ui/toast";
 import { BackgroundThreadContext } from "./backgroundThread";
+
+function captureVisibleAssistantSelection(
+  viewport: HTMLElement,
+  threadRef: ScopedThreadRef,
+  nativeSelection: Selection | null,
+) {
+  const captured = captureAssistantTextSelection(viewport, nativeSelection);
+  const messageId = captured?.source.dataset.assistantCitationSource;
+  if (!captured || !messageId) return null;
+  const rect = captured.range.getBoundingClientRect();
+  const viewportRect = viewport.getBoundingClientRect();
+  if (!isSelectionRectVisible(rect, [viewportRect])) return null;
+  // A selection can cross blocks with different clipping ancestors.
+  const common = captured.range.commonAncestorContainer;
+  const walker = document.createTreeWalker(common, NodeFilter.SHOW_TEXT);
+  let node = common.nodeType === Node.TEXT_NODE ? common : walker.nextNode();
+  let visible = false;
+  for (; node && !visible; node = walker.nextNode()) {
+    if (!captured.range.intersectsNode(node)) continue;
+    if (node.parentElement && getComputedStyle(node.parentElement).userSelect === "none") continue;
+    const fragment = document.createRange();
+    fragment.selectNodeContents(node);
+    if (node === captured.range.startContainer) {
+      fragment.setStart(node, captured.range.startOffset);
+    }
+    if (node === captured.range.endContainer) {
+      fragment.setEnd(node, captured.range.endOffset);
+    }
+    if (!fragment.toString().trim()) continue;
+    const lines = Array.from(fragment.getClientRects());
+    if (!lines.some((line) => isSelectionRectVisible(line, [viewportRect]))) continue;
+    const clips: Pick<DOMRect, "left" | "right" | "top" | "bottom">[] = [viewportRect];
+    for (
+      let element = node.parentElement;
+      element && element !== viewport;
+      element = element.parentElement
+    ) {
+      const style = getComputedStyle(element);
+      const clipX = style.overflowX !== "visible";
+      const clipY = style.overflowY !== "visible";
+      if (!clipX && !clipY) continue;
+      const bounds = element.getBoundingClientRect();
+      const left = bounds.left + element.clientLeft;
+      const top = bounds.top + element.clientTop;
+      clips.push({
+        left: clipX ? left : -Infinity,
+        right: clipX ? left + element.clientWidth : Infinity,
+        top: clipY ? top : -Infinity,
+        bottom: clipY ? top + element.clientHeight : Infinity,
+      });
+    }
+    visible = lines.some((line) => isSelectionRectVisible(line, clips));
+  }
+  if (!visible) return null;
+  return {
+    citation: {
+      version: 1 as const,
+      ...threadRef,
+      messageId: MessageId.make(messageId),
+      ...captured.selector,
+    },
+    sourceAnchor: { source: captured.source, range: captured.range, viewport },
+    rect,
+    rects: captured.range.getClientRects(),
+    viewportRect,
+  };
+}
+
+type AssistantSelectionTarget = {
+  readonly viewport: HTMLElement;
+  readonly threadRef: ScopedThreadRef;
+  readonly cite: (
+    citation: AssistantCitation,
+    sourceAnchor: AssistantCitationSourceAnchor,
+  ) => boolean;
+  readonly dismiss: () => void;
+};
+
+const selectionTargets = new Set<AssistantSelectionTarget>();
+
+function findActiveSelection() {
+  if (typeof window === "undefined") return null;
+  const nativeSelection = window.getSelection();
+  if (!nativeSelection || nativeSelection.isCollapsed) return null;
+  for (const target of selectionTargets) {
+    if (!target.viewport.isConnected || target.viewport.closest("[inert]")) continue;
+    const captured = captureVisibleAssistantSelection(
+      target.viewport,
+      target.threadRef,
+      nativeSelection,
+    );
+    if (captured) return { target, captured };
+  }
+  return null;
+}
+
+export function hasActiveAssistantSelection(): boolean {
+  return findActiveSelection() !== null;
+}
+
+export function citeActiveAssistantSelection(): boolean {
+  const active = findActiveSelection();
+  if (!active) return false;
+  const { target, captured } = active;
+  if (captured.citation.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH) {
+    toastManager.add({
+      type: "warning",
+      title: "Selection is too long to cite",
+      description: `Select up to ${ASSISTANT_CITATION_MAX_TEXT_LENGTH.toLocaleString()} characters.`,
+    });
+    return true;
+  }
+  if (target.cite(captured.citation, captured.sourceAnchor)) {
+    window.getSelection()?.removeAllRanges();
+    target.dismiss();
+  }
+  return true;
+}
 
 export function AssistantSelectionToolbar({
   viewport,
@@ -37,6 +159,11 @@ export function AssistantSelectionToolbar({
   const toolbarRef = useRef<HTMLButtonElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
   const backgroundThread = use(BackgroundThreadContext);
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const shortcutLabel = shortcutLabelForCommand(keybindings, "composer.citeSelection", {
+    context: { assistantSelection: true },
+  });
+  const citeSelection = useEffectEvent(onCite);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the toolbar DOM node and clamps its position inside the window before paint
   useLayoutEffect(() => {
@@ -51,67 +178,17 @@ export function AssistantSelectionToolbar({
   useEffect(() => {
     if (!viewport) return;
     const clear = () => setSelection(null);
+    const dismiss = () => {
+      actionsRef.current?.cancel();
+      setSelection(null);
+    };
     const update = (pointer: SelectionActionPoint | null) => {
-      const nativeSelection = window.getSelection();
-      const captured = captureAssistantTextSelection(viewport, nativeSelection);
-      const messageId = captured?.source.dataset.assistantCitationSource;
-      if (!captured || !messageId) {
+      const captured = captureVisibleAssistantSelection(viewport, threadRef, window.getSelection());
+      if (!captured) {
         clear();
         return;
       }
-      const rect = captured.range.getBoundingClientRect();
-      const viewportRect = viewport.getBoundingClientRect();
-      if (!isSelectionRectVisible(rect, [viewportRect])) {
-        clear();
-        return;
-      }
-      // A selection can cross blocks with different clipping ancestors.
-      const common = captured.range.commonAncestorContainer;
-      const walker = document.createTreeWalker(common, NodeFilter.SHOW_TEXT);
-      let node = common.nodeType === Node.TEXT_NODE ? common : walker.nextNode();
-      let visible = false;
-      for (; node && !visible; node = walker.nextNode()) {
-        if (!captured.range.intersectsNode(node)) continue;
-        if (node.parentElement && getComputedStyle(node.parentElement).userSelect === "none")
-          continue;
-        const fragment = document.createRange();
-        fragment.selectNodeContents(node);
-        if (node === captured.range.startContainer) {
-          fragment.setStart(node, captured.range.startOffset);
-        }
-        if (node === captured.range.endContainer) {
-          fragment.setEnd(node, captured.range.endOffset);
-        }
-        if (!fragment.toString().trim()) continue;
-        const lines = Array.from(fragment.getClientRects());
-        if (!lines.some((line) => isSelectionRectVisible(line, [viewportRect]))) continue;
-        const clips: Pick<DOMRect, "left" | "right" | "top" | "bottom">[] = [viewportRect];
-        for (
-          let element = node.parentElement;
-          element && element !== viewport;
-          element = element.parentElement
-        ) {
-          const style = getComputedStyle(element);
-          const clipX = style.overflowX !== "visible";
-          const clipY = style.overflowY !== "visible";
-          if (!clipX && !clipY) continue;
-          const bounds = element.getBoundingClientRect();
-          const left = bounds.left + element.clientLeft;
-          const top = bounds.top + element.clientTop;
-          clips.push({
-            left: clipX ? left : -Infinity,
-            right: clipX ? left + element.clientWidth : Infinity,
-            top: clipY ? top : -Infinity,
-            bottom: clipY ? top + element.clientHeight : Infinity,
-          });
-        }
-        visible = lines.some((line) => isSelectionRectVisible(line, clips));
-      }
-      if (!visible) {
-        clear();
-        return;
-      }
-      const rects = captured.range.getClientRects();
+      const { rects, rect, viewportRect } = captured;
       const pointerOnText =
         pointer !== null &&
         Array.from(rects).some(
@@ -122,13 +199,8 @@ export function AssistantSelectionToolbar({
             pointer.y <= line.bottom + 8,
         );
       setSelection({
-        sourceAnchor: { source: captured.source, range: captured.range, viewport },
-        citation: {
-          version: 1,
-          ...threadRef,
-          messageId: MessageId.make(messageId),
-          ...captured.selector,
-        },
+        sourceAnchor: captured.sourceAnchor,
+        citation: captured.citation,
         position: resolveSelectionActionPosition({
           bounds: viewportRect,
           selectionRect: rects.item(rects.length - 1) ?? rect,
@@ -137,6 +209,13 @@ export function AssistantSelectionToolbar({
         }),
       });
     };
+    const target: AssistantSelectionTarget = {
+      viewport,
+      threadRef,
+      cite: (citation, sourceAnchor) => citeSelection(citation, sourceAnchor),
+      dismiss,
+    };
+    selectionTargets.add(target);
     const actions = observeSelectionActions({
       element: viewport,
       getActionElement: () => toolbarRef.current,
@@ -169,6 +248,7 @@ export function AssistantSelectionToolbar({
     if (!backgroundThread) document.addEventListener("keydown", focusActions, true);
     document.addEventListener("selectionchange", actions.selectionChanged);
     return () => {
+      selectionTargets.delete(target);
       document.removeEventListener("keydown", focusActions, true);
       document.removeEventListener("selectionchange", actions.selectionChanged);
       actions.dispose();
@@ -210,6 +290,11 @@ export function AssistantSelectionToolbar({
     >
       <QuoteIcon aria-hidden="true" className="size-3.5" />
       {tooLong ? "Shorten selection" : "Cite"}
+      {!tooLong && shortcutLabel ? (
+        <span aria-hidden="true" className="text-muted-foreground">
+          {shortcutLabel}
+        </span>
+      ) : null}
     </Button>,
     document.body,
   );
