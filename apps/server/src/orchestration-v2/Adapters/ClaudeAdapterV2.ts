@@ -1190,10 +1190,14 @@ export const layerQueryRunner: Layer.Layer<
           // Send MCP credentials over stdin to keep them out of SDK argv and inherited command environments.
           const { mcpServers, ...sdkOptions } = input.options;
           // Jobs the agent starts inherit the thread, so port discovery can attribute their servers.
+          // CLAUDE_CODE_MCP_APPS_HOST makes the CLI advertise the MCP Apps extension to servers.
+          // Without it, servers such as Datadog list `_meta.ui` but return text-only results, and
+          // the app T3 renders from them is blank.
           const queryOptions = {
             ...sdkOptions,
             env: {
               ...(sdkOptions.env ?? hostEnvironment),
+              CLAUDE_CODE_MCP_APPS_HOST: "1",
               [PortScanner.AGENT_THREAD_ENV]: input.threadId,
             },
           };
