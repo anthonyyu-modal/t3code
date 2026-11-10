@@ -29,6 +29,7 @@ export function startGuideRunNotifications(
   router: AnyRouter,
 ): () => void {
   const running = new Map<string, () => void>();
+  const openNotifications = new Map<string, Notification>();
   const sync = (watches: Readonly<Record<string, GuideRunWatch>>) => {
     for (const [key, stop] of running) {
       if (watches[key] !== undefined) continue;
@@ -37,7 +38,7 @@ export function startGuideRunNotifications(
     }
     for (const [key, watch] of Object.entries(watches)) {
       if (running.has(key)) continue;
-      const stop = watchGuideRun(registry, router, key, watch);
+      const stop = watchGuideRun(registry, router, key, watch, openNotifications);
       // The first read can settle the run before it is recorded as running.
       if (useGuideRunStore.getState().watches[key] === watch) running.set(key, stop);
       else stop();
@@ -51,6 +52,8 @@ export function startGuideRunNotifications(
     unsubscribe();
     for (const stop of running.values()) stop();
     running.clear();
+    for (const notification of openNotifications.values()) notification.close();
+    openNotifications.clear();
   };
 }
 
@@ -59,6 +62,7 @@ function watchGuideRun(
   router: AnyRouter,
   runKey: string,
   watch: GuideRunWatch,
+  openNotifications: Map<string, Notification>,
 ): () => void {
   const atom = pullRequestEnvironment.reviewGuide({
     environmentId: watch.environmentId,
@@ -108,14 +112,20 @@ function watchGuideRun(
         },
       });
     };
-    const mode = getClientSettings().notificationMode;
+    const {
+      notificationMode: mode,
+      inAppNotificationsEnabled,
+      inAppSystemNotificationsEnabled,
+    } = getClientSettings();
     if (hasNotificationSound(mode)) {
       void playNotificationSound(failure === null ? "completion" : "input", () =>
         hasNotificationSound(getClientSettings().notificationMode),
       );
     }
+    let notification: Notification | undefined;
+    let toastId: ReturnType<typeof toastManager.add> | undefined;
     if (looking) {
-      const toastId = toastManager.add({
+      toastId = toastManager.add({
         type: failure === null ? "success" : "error",
         title,
         description: failure === null ? body : `${body}: ${failure}`,
@@ -131,24 +141,36 @@ function watchGuideRun(
         actionProps: {
           children: "Open guide",
           onClick: () => {
-            toastManager.close(toastId);
+            if (toastId !== undefined) toastManager.close(toastId);
+            notification?.close();
             open();
           },
         },
       });
+      if (!inAppNotificationsEnabled || !inAppSystemNotificationsEnabled) return;
+    } else if (!hasDesktopNotifications(mode)) {
       return;
     }
-    if (
-      !hasDesktopNotifications(mode) ||
-      typeof Notification === "undefined" ||
-      Notification.permission !== "granted"
-    )
-      return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
     try {
-      const notification = new Notification(title, { body, tag: `guide:${runKey}`, silent: true });
-      notification.addEventListener("click", () => {
-        notification.close();
+      const tag = `guide:${runKey}`;
+      openNotifications.get(tag)?.close();
+      notification = new Notification(title, { body, tag, silent: true });
+      const current = notification;
+      openNotifications.set(tag, current);
+      current.addEventListener(
+        "close",
+        () => {
+          if (openNotifications.get(tag) === current) openNotifications.delete(tag);
+        },
+        { once: true },
+      );
+      current.addEventListener("click", () => {
+        if (openNotifications.get(tag) === current) openNotifications.delete(tag);
+        current.close();
+        if (toastId !== undefined) toastManager.close(toastId);
         window.focus();
+        void window.desktopBridge?.revealWindow().catch(() => undefined);
         open();
       });
     } catch {

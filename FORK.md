@@ -10,6 +10,7 @@ Upstream T3 Code plus a small patch stack, released from this repository.
 - **Archives come from this fork.** `CLI_RELEASE_REPOSITORY` in `packages/shared/src/cliRelease.ts` points here, so SSH remotes and runtimes install this fork's patched archives.
 - **Unsigned macOS builds are ad hoc signed and have no update feed** (`scripts/build-desktop-artifact.ts`): macOS refuses notifications from an app whose bundle is not signed, and Squirrel.Mac cannot install an ad hoc signed update.
 - **Settings → General → Test notification** posts a notification on demand: macOS lists an app in System Settings → Notifications only after it posts one.
+- **In-app alerts can also send a system notification** (Settings → General → System notifications for in-app alerts, off by default, kept on this device), so an alert stays clickable in Notification Center after its in-app toast disappears.
 - **Settings rows this fork adds carry a Fork badge** (`forkSetting` in `apps/web/src/components/settings/forkSetting.tsx`); searching settings for "fork" lists them.
 - **A divider line separates pinned threads** from unpinned ones in the sidebar.
 - **Threads with an open pull request stay at full strength in the sidebar.** Upstream dims a thread once you have read its finished run, or while it works in the background. Here an open PR keeps it bright until the PR merges or closes (`shouldRecedeSidebarThread` in `apps/web/src/components/Sidebar.logic.ts`). Settled and snoozed rows stay grey.
