@@ -13,6 +13,9 @@ actions menu. **Reset to default** brings it back.
 Dictation**, and the hold or toggle behavior in **Settings → Voice**. See
 [Voice input](./voice-input.md).
 
+With text selected in an assistant response, `mod+shift+.` cites that passage in
+the composer and opens its comment box. Change it under **Composer: Cite Selection**.
+
 In **Settings → Chat → Send shortcut**, choose whether Enter sends, requires
 `mod+Enter` for multiline prompts, or always requires `mod+Enter`. `Shift+Enter`
 inserts a new line. This applies to the web and desktop composer at desktop widths.
@@ -128,9 +131,10 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 
 Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
 `previewOpen`, `rightPanelOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`,
-`draftThreadRoute`, `turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
+`assistantSelection`, `draftThreadRoute`, `turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
 In a thread, `rightPanelOpen` is true while its right panel is open; the default
 `mod+t` uses it to open the panel's new-tab menu.
+`assistantSelection` is true while text inside a visible assistant response is selected.
 `draftThreadRoute` is true on a draft thread, including a restored draft, until it is first sent.
 `editableFocus` is true while a text field, the composer, or another editor has
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
