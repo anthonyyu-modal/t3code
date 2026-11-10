@@ -10,10 +10,41 @@ import {
 } from "../../threadNotifications";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Switch } from "../ui/switch";
 import { forkSetting } from "./forkSetting";
 import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
+
+async function requestDesktopNotificationPermission(
+  setRequesting: (requesting: boolean) => void,
+  options?: { readonly soundFallback?: boolean },
+): Promise<string | null> {
+  const suffix = options?.soundFallback ? " Sound only is still available." : "";
+  if (typeof Notification === "undefined" || !window.isSecureContext) {
+    return `Notifications need a supported browser over HTTPS, or the desktop app.${suffix}`;
+  }
+  if (Notification.permission === "granted") {
+    return null;
+  }
+  if (Notification.permission === "denied") {
+    return options?.soundFallback
+      ? `Allow notifications in your browser or system settings, then choose this option again.${suffix}`
+      : "Allow notifications in your browser or system settings, then try again.";
+  }
+  setRequesting(true);
+  const permission = await settlePromise(() => Notification.requestPermission());
+  setRequesting(false);
+  if (permission._tag === "Failure") {
+    return `Notifications are unavailable in this browser.${suffix}`;
+  }
+  if (permission.value !== "granted") {
+    return options?.soundFallback
+      ? `Allow notifications in your browser or system settings, then choose this option again.${suffix}`
+      : "Allow notifications in your browser or system settings, then try again.";
+  }
+  return null;
+}
 
 export function NotificationSettings() {
   const mode = useScopedSettings((settings) => settings.notificationMode);
@@ -43,25 +74,11 @@ export function NotificationSettings() {
             setPermissionMessage(null);
             if (hasNotificationSound(value)) unlockNotificationAudio();
             if (hasDesktopNotifications(value)) {
-              if (typeof Notification === "undefined" || !window.isSecureContext) {
-                setPermissionMessage(
-                  "Notifications need a supported browser over HTTPS, or the desktop app. Sound only is still available.",
-                );
-                return;
-              }
-              setRequesting(true);
-              const permission = await settlePromise(() => Notification.requestPermission());
-              setRequesting(false);
-              if (permission._tag === "Failure") {
-                setPermissionMessage(
-                  "Notifications are unavailable in this browser. Sound only is still available.",
-                );
-                return;
-              }
-              if (permission.value !== "granted") {
-                setPermissionMessage(
-                  "Allow notifications in your browser or system settings, then choose this option again. Sound only is still available.",
-                );
+              const denial = await requestDesktopNotificationPermission(setRequesting, {
+                soundFallback: true,
+              });
+              if (denial !== null) {
+                setPermissionMessage(denial);
                 return;
               }
             }
@@ -109,6 +126,48 @@ export function TestNotificationSettings() {
         >
           Send test
         </Button>
+      }
+    />
+  );
+}
+
+export function InAppSystemNotificationSettings() {
+  const enabled = useScopedSettings(
+    (settings) => settings.inAppNotificationsEnabled && settings.inAppSystemNotificationsEnabled,
+  );
+  const updateSettings = useUpdateScopedSettings();
+  const [permissionMessage, setPermissionMessage] = useState<string | null>(null);
+  const [requesting, setRequesting] = useState(false);
+
+  return (
+    <SettingsRow
+      {...forkSetting("in-app-system-notifications")}
+      description={
+        permissionMessage ??
+        "Also send a system notification when showing an in-app toast, so you still have one to click after the toast disappears."
+      }
+      control={
+        <Switch
+          checked={enabled}
+          disabled={requesting}
+          aria-label="System notifications for in-app alerts"
+          onCheckedChange={async (checked) => {
+            setPermissionMessage(null);
+            if (!checked) {
+              updateSettings({ inAppSystemNotificationsEnabled: false });
+              return;
+            }
+            const denial = await requestDesktopNotificationPermission(setRequesting);
+            if (denial !== null) {
+              setPermissionMessage(denial);
+              return;
+            }
+            updateSettings({
+              inAppNotificationsEnabled: true,
+              inAppSystemNotificationsEnabled: true,
+            });
+          }}
+        />
       }
     />
   );

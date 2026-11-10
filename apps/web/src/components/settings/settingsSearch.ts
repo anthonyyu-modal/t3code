@@ -696,6 +696,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification toast popup completion input approval failure"],
   },
   {
+    id: "in-app-system-notifications",
+    title: "System notifications for in-app alerts",
+    to: "/settings/general",
+    searchTerms: [
+      "notification toast popup system desktop macos notification center banner click fork",
+    ],
+  },
+  {
     id: "time-format",
     title: "Time format",
     to: "/settings/general",

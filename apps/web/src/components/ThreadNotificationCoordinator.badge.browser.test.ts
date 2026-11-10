@@ -11,7 +11,9 @@ import { RELEASED_COMPLETION_GRACE_MS } from "./ThreadNotificationCoordinator.lo
 const state = vi.hoisted(() => ({
   mode: "notifications",
   inApp: false,
+  inAppSystem: false,
   toast: vi.fn(),
+  closeToast: vi.fn(),
   shells: null as unknown as { set: (id: string, value: unknown) => void },
   navigate: vi.fn(),
   sound: vi.fn(),
@@ -20,7 +22,14 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock(import("./ui/toast"), async (original) => {
   const actual = await original();
-  return { ...actual, toastManager: { ...actual.toastManager, add: state.toast as never } };
+  return {
+    ...actual,
+    toastManager: {
+      ...actual.toastManager,
+      add: state.toast as never,
+      close: state.closeToast as never,
+    },
+  };
 });
 vi.mock(import("../state/shell"), async (original) => {
   const actual = await original();
@@ -67,6 +76,7 @@ vi.mock(import("../hooks/useSettings"), async (original) => ({
   getClientSettings: (() => ({
     notificationMode: state.mode,
     inAppNotificationsEnabled: state.inApp,
+    inAppSystemNotificationsEnabled: state.inAppSystem,
   })) as never,
 }));
 vi.mock(import("../threadNotifications"), async (original) => ({
@@ -190,6 +200,9 @@ function setup() {
   stack.defer(() => testRegistry.dispose());
   state.mode = "notifications";
   state.inApp = false;
+  state.inAppSystem = false;
+  let toastSeq = 0;
+  state.toast.mockImplementation(() => `toast-${++toastSeq}`);
   state.settingsListeners.clear();
   registry.set(environmentIdsAtom, ["one", "two"]);
   state.shells.set("one", shell());
@@ -393,3 +406,65 @@ it.each([false, true])(
     expect(TestNotification.sent.map(({ title }) => title)).toEqual(["Thread completed"]);
   },
 );
+
+it("mirrors in-app toasts to system notifications when enabled and keeps them clickable after toast dismissal", async () => {
+  await using app = setup();
+  focused = true;
+  state.inApp = true;
+  state.inAppSystem = false;
+  app.start();
+
+  state.shells.set("one", shell({ hasPendingApprovals: true }));
+  expect(state.toast).toHaveBeenCalledTimes(1);
+  expect(TestNotification.sent).toEqual([]);
+
+  state.inAppSystem = true;
+  app.changeSettings();
+  state.badge.mockClear();
+
+  state.shells.set(
+    "one",
+    shell({
+      latestTurn: { turnId: "turn", state: "completed", completedAt: "2026-09-13T07:05:00.000Z" },
+    }),
+  );
+  expect(state.toast).toHaveBeenCalledTimes(2);
+  expect(TestNotification.sent.map(({ title }) => title)).toEqual(["Thread completed"]);
+  expect(state.badge).not.toHaveBeenCalled();
+
+  const completedNotification = TestNotification.sent[0]!;
+  window.dispatchEvent(new Event("focus"));
+  const secondToast = state.toast.mock.calls[1]![0] as {
+    onRemove: () => void;
+    actionProps: { onClick: () => void };
+  };
+  secondToast.onRemove();
+  expect(completedNotification.close).not.toHaveBeenCalled();
+
+  completedNotification.dispatchEvent(new Event("click"));
+  expect(completedNotification.close).toHaveBeenCalledTimes(1);
+  expect(state.navigate).toHaveBeenLastCalledWith({
+    to: "/$environmentId/$threadId",
+    params: { environmentId: EnvironmentId.make("one"), threadId: "thread" },
+  });
+
+  state.shells.set("two", shell({ hasPendingUserInput: true }));
+  const inputNotification = TestNotification.sent[1]!;
+  const thirdToast = state.toast.mock.calls[2]![0] as {
+    actionProps: { onClick: () => void };
+  };
+  thirdToast.actionProps.onClick();
+  expect(state.closeToast).toHaveBeenCalledWith("toast-3");
+  expect(inputNotification.close).toHaveBeenCalledTimes(1);
+
+  state.shells.set(
+    "two",
+    shell({
+      latestTurn: { turnId: "turn-2", state: "completed", completedAt: "2026-09-13T07:06:00.000Z" },
+    }),
+  );
+  const lingeringNotification = TestNotification.sent[2]!;
+  state.inAppSystem = false;
+  app.changeSettings();
+  expect(lingeringNotification.close).toHaveBeenCalledTimes(1);
+});
