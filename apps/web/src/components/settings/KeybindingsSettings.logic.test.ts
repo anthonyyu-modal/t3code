@@ -11,6 +11,7 @@ import { resolveShortcutCommand } from "../../keybindings";
 import {
   buildKeybindingRows,
   buildWhenVariableOptions,
+  filterKeybindingRows,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
   parseWhenExpressionDraft,
@@ -337,6 +338,18 @@ describe("KeybindingsSettings.logic", () => {
       expect(unknownWhenVariables(draft.value)).toEqual([]);
       expect(buildWhenVariableOptions()).toContain(condition);
     }
+    expect(buildWhenVariableOptions()).toContain("assistantSelection");
+    const citeRows = buildKeybindingRows(
+      compileResolvedKeybindingsConfig([
+        { command: "composer.citeSelection", key: "mod+shift+.", when: "!terminalFocus" },
+      ]),
+    );
+    expect(filterKeybindingRows(citeRows, "comment").map((row) => row.command)).toEqual([
+      "composer.citeSelection",
+    ]);
+    expect(filterKeybindingRows(citeRows, "fork").map((row) => row.command)).toEqual([
+      "composer.citeSelection",
+    ]);
     expect(parseWhenExpressionDraft("editorFocus &&")).toEqual({
       ok: false,
       message: "Use variables with !, &&, ||, and parentheses.",
