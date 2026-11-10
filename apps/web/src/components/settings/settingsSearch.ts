@@ -14,7 +14,7 @@ import { decodeMsg, msg, useMessages } from "gt-react";
 import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../../appearanceFonts";
 import { writeLocalStorageValue } from "../../hooks/useLocalStorage";
 import type { MessageResolver } from "../../i18n/messages";
-import { commandLabel } from "./KeybindingsSettings.logic";
+import { commandLabel, keybindingSearchTerms } from "./KeybindingsSettings.logic";
 import type { ResolvedSettingsScope } from "./settingsScope";
 
 export type SettingsPath =
@@ -205,7 +205,7 @@ const KEYBINDING_SEARCH_ITEMS = STATIC_KEYBINDING_COMMANDS.toSorted((left, right
     id: keybindingSearchAnchorId(command),
     title: commandLabel(command, untranslated),
     to: "/settings/keybindings" as const,
-    searchTerms: [command, ...defaultKeys],
+    searchTerms: [command, ...defaultKeys, ...keybindingSearchTerms(command)],
     secondary: true,
     ...(defaultKeys.length === 0 ? { targetId: "keybindings" } : {}),
   };

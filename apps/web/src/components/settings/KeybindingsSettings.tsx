@@ -84,6 +84,7 @@ import {
   buildWhenVariableOptions,
   commandLabel,
   DEFAULT_WHEN_VARIABLE,
+  isForkKeybindingCommand,
   isKnownWhenVariable,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
@@ -1050,6 +1051,12 @@ function KeybindingRowTitle({ row }: { row: KeybindingRow }) {
   return (
     <SharedTooltipTrigger render={<span className="flex items-center gap-2" />} label={row.command}>
       {commandLabel(row.command, m)}
+      {isForkKeybindingCommand(row.command) ? (
+        <Badge variant="outline" size="sm">
+          {/* oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md) */}
+          {"Fork"}
+        </Badge>
+      ) : null}
       <KeybindingSourceBadge source={row.source} />
     </SharedTooltipTrigger>
   );

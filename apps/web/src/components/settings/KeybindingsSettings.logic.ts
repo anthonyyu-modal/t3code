@@ -72,11 +72,27 @@ const CORE_WHEN_VARIABLES = [
   "terminalOpen",
   "previewOpen",
   "composerEmpty",
+  "assistantSelection",
   "isWeb",
   "isDesktop",
   "true",
   "false",
 ] as const;
+
+const FORK_KEYBINDING_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
+  "composer.citeSelection",
+]);
+
+export function isForkKeybindingCommand(command: KeybindingCommand): boolean {
+  return FORK_KEYBINDING_COMMANDS.has(command);
+}
+
+export function keybindingSearchTerms(command: KeybindingCommand): ReadonlyArray<string> {
+  if (command === "composer.citeSelection") {
+    return ["cite", "comment", "quote", "selection", "response", "fork"];
+  }
+  return isForkKeybindingCommand(command) ? ["fork"] : [];
+}
 
 const DEFAULT_WHEN_VARIABLES = new Set<string>(CORE_WHEN_VARIABLES);
 for (const binding of DEFAULT_RESOLVED_KEYBINDINGS) {
@@ -396,6 +412,7 @@ export function filterKeybindingRows(
     return (
       row.command.toLowerCase().includes(normalizedQuery) ||
       commandLabel(row.command, resolve).toLowerCase().includes(normalizedQuery) ||
+      keybindingSearchTerms(row.command).some((term) => term.includes(normalizedQuery)) ||
       row.key.toLowerCase().includes(normalizedQuery) ||
       // The row shows the platform label ("Ctrl+K"), not the stored "mod+k".
       formatShortcutLabel(row.binding.shortcut, platform).toLowerCase().includes(normalizedQuery) ||
@@ -548,6 +565,7 @@ const LATE_COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
   "view.reopenClosed": msg("Reopen Closed Tab"),
   "preview.focusUrl": msg("Preview: Focus URL"),
   "preview.find": msg("Preview: Find on Page"),
+  "composer.citeSelection": msg("Composer: Cite Selection"),
 };
 
 export function commandLabel(command: KeybindingCommand, resolve: MessageResolver = m): string {
