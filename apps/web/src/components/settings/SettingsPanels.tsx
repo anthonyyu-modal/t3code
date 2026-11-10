@@ -2,7 +2,11 @@ import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m as resolveMessage } from "~/i18n/messages";
 import { useAtomValue } from "@effect/atom-react";
 import { ThreadThumbnailSettings } from "./ThreadThumbnailSettings";
-import { NotificationSettings, TestNotificationSettings } from "./NotificationSettings";
+import {
+  InAppSystemNotificationSettings,
+  NotificationSettings,
+  TestNotificationSettings,
+} from "./NotificationSettings";
 import { QuickThreadsSettings } from "./QuickThreadsSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { CheckIcon } from "lucide-react";
@@ -541,6 +545,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
       ? [gt("In-app notifications")]
       : []),
+    ...(settings.inAppSystemNotificationsEnabled !==
+    DEFAULT_UNIFIED_SETTINGS.inAppSystemNotificationsEnabled
+      ? ["System notifications for in-app alerts"]
+      : []),
     ...(settings.sidebarProjectGroupingMode !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
       ? [gt("Project Grouping")]
       : []),
@@ -725,6 +733,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
+      inAppSystemNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppSystemNotificationsEnabled,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
@@ -879,11 +888,21 @@ export function GeneralSettingsPanel() {
           control={
             <Switch
               checked={settings.inAppNotificationsEnabled}
-              onCheckedChange={(checked) => updateSettings({ inAppNotificationsEnabled: checked })}
+              onCheckedChange={(checked) =>
+                updateSettings(
+                  checked
+                    ? { inAppNotificationsEnabled: true }
+                    : {
+                        inAppNotificationsEnabled: false,
+                        inAppSystemNotificationsEnabled: false,
+                      },
+                )
+              }
               aria-label={gt("In-app notifications")}
             />
           }
         />
+        <InAppSystemNotificationSettings />
       </SettingsSection>
 
       <SettingsSection id="sidebar" title={gt("Sidebar")}>
