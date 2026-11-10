@@ -245,3 +245,56 @@ it("runs right panel commands from inside a side chat pane, but not thread comma
 
   expect(ran).toEqual(["toggle", "close", "toggle"]);
 });
+
+it("runs a single-key shortcut ahead of type-to-focus, and falls through when unhandled", async () => {
+  const composerKeys: string[] = [];
+  const handled: string[] = [];
+  let claimKey = true;
+  function SingleKeyChat() {
+    useChatShortcuts({
+      enabled: true,
+      keybindings: [
+        {
+          command: "composer.citeSelection",
+          shortcut: {
+            key: "r",
+            metaKey: false,
+            ctrlKey: false,
+            shiftKey: false,
+            altKey: false,
+            modKey: false,
+          },
+        },
+      ],
+      scriptKeybindings: [],
+      getShortcutContext: () => shortcutContext,
+      threadFindActive: false,
+      composerRef: {
+        current: {
+          insertTextAtEnd: (key: string) => {
+            composerKeys.push(key);
+            return true;
+          },
+        } as Partial<ChatComposerHandle> as ChatComposerHandle,
+      },
+      branchToolbarRef: { current: null },
+      closeThreadFind: () => {},
+      commands: {
+        "composer.citeSelection": () => {
+          if (!claimKey) return false;
+          handled.push("r");
+        },
+      },
+      fallback: () => undefined,
+    });
+    return null;
+  }
+
+  await using _screen = await render(<SingleKeyChat />, options);
+  await userEvent.keyboard("r");
+  claimKey = false;
+  await userEvent.keyboard("r");
+
+  expect(handled).toEqual(["r"]);
+  expect(composerKeys).toEqual(["r"]);
+});
