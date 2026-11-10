@@ -1,5 +1,9 @@
 import type { ComposerHandleRef } from "../../composerHandleContext";
 import type { BranchToolbarHandle } from "../BranchToolbar";
+import {
+  citeActiveAssistantSelection,
+  hasActiveAssistantSelection,
+} from "./AssistantSelectionToolbar";
 import type { ChatComposerHandle } from "./ChatComposer";
 import type { ChatShortcutCommands } from "./useChatShortcuts";
 
@@ -15,6 +19,8 @@ export function composerShortcutCommands(
   branchToolbarRef: { readonly current: BranchToolbarHandle | null },
 ): ChatShortcutCommands {
   return {
+    "composer.citeSelection": ({ event }) =>
+      event.repeat ? hasActiveAssistantSelection() : citeActiveAssistantSelection(),
     "modelPicker.toggle": ({ event }) => {
       if (!event.repeat) composerRef.current?.toggleModelPicker();
     },
