@@ -10,6 +10,7 @@ import {
   buildSidebarForkParentKeyMap,
   buildSidebarForkTree,
   deleteSelectedThreadEntries,
+  filterSidebarV2VisibleThreads,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
   isQuickSidebarThread,
@@ -1901,7 +1902,14 @@ describe("Forked thread tree (fork)", () => {
       { kind: "marker", marker: "pinned-divider" },
       { kind: "thread", key: "a1", section: "active" },
       { kind: "thread", key: "a1-f1", section: "active", rootKey: "a1", parentKey: "a1" },
-      { kind: "thread", key: "a1-f2", section: "active", rootKey: "a1", parentKey: "a1" },
+      {
+        kind: "thread",
+        key: "a1-sc",
+        section: "active",
+        rootKey: "a1",
+        parentKey: "a1",
+        sideChat: true,
+      },
       { kind: "thread", key: "a2", section: "active" },
       { kind: "marker", marker: "settled-header" },
       { kind: "thread", key: "s1", section: "settled" },
@@ -1924,5 +1932,48 @@ describe("Forked thread tree (fork)", () => {
       activeOrder: ["a1", "a2"],
     });
     expect(resolveSidebarDropTarget(items, "a1-f1", "s1")?.section).toBe("settled");
+    expect(resolveSidebarDropTarget(items, "a1-sc", "p1")).toBeNull();
+    expect(resolveSidebarDropTarget(items, "a1-sc", "s1")?.section).toBe("settled");
+  });
+
+  it("includes /btw and /side side chats in visible sidebar threads and tracks sideChatCount", () => {
+    const root = makeThreadFixture({ id: ThreadId.make("root"), environmentId });
+    const subagent = makeThreadFixture({
+      id: ThreadId.make("sub"),
+      environmentId,
+      lineage: {
+        rootThreadId: root.id,
+        parentThreadId: root.id,
+        relationshipToParent: "subagent",
+      },
+    });
+    const sideChat = forkOf("btw-1", root.id, {
+      lineage: {
+        rootThreadId: root.id,
+        parentThreadId: root.id,
+        relationshipToParent: "fork",
+        sideChat: true,
+      },
+    });
+    const visible = filterSidebarV2VisibleThreads([root, subagent, sideChat], null, new Set());
+    expect(visible.map((t) => t.id)).toEqual(["root", "btw-1"]);
+
+    const tree = buildSidebarForkTree({
+      threads: visible,
+      forkParentKeyByKey: buildSidebarForkParentKeyMap([root, subagent, sideChat]),
+      collapsedParentKeys: new Set(),
+      revealKey: null,
+    });
+    expect(
+      tree.map((entry) => ({
+        id: entry.thread.id,
+        depth: entry.depth,
+        forkCount: entry.forkCount,
+        sideChatCount: entry.sideChatCount,
+      })),
+    ).toEqual([
+      { id: "root", depth: 0, forkCount: 1, sideChatCount: 1 },
+      { id: "btw-1", depth: 1, forkCount: 0, sideChatCount: 0 },
+    ]);
   });
 });

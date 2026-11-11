@@ -220,6 +220,7 @@ export type SidebarListItem =
       readonly section: SidebarSection;
       readonly rootKey?: string | undefined;
       readonly parentKey?: string | undefined;
+      readonly sideChat?: boolean | undefined;
     }
   | { readonly kind: "marker"; readonly marker: SidebarListMarker };
 
@@ -308,7 +309,8 @@ export function resolveSidebarDropTarget(
   }
   const section = sectionAtSidebarSlot(moved, insertIndex);
   if (section === "quick" || section === "working" || section === "snoozed") return null;
-  // Nested forks stay anchored under their parent within a section; they only drag to Pinned or Settled.
+  // Nested forks stay anchored under their parent within a section; side chats only drop onto Settled.
+  if (activeItem.sideChat && section !== "settled") return null;
   if (isNestedFork && section !== "pinned" && section !== "settled") return null;
   if (isNestedFork && section === activeItem.section) return null;
   const pinnedOrder: string[] = [];
@@ -647,6 +649,10 @@ export function isSidebarHiddenThread(thread: Pick<SidebarThreadSummary, "lineag
   return !isListedThreadLineage(thread.lineage);
 }
 
+function isSidebarSubagentThread(thread: Pick<SidebarThreadSummary, "lineage">): boolean {
+  return thread.lineage.relationshipToParent === "subagent";
+}
+
 type SidebarForkLineageInput = Pick<
   SidebarThreadSummary,
   "id" | "environmentId" | "lineage" | "forkedFrom"
@@ -656,7 +662,9 @@ function resolveSidebarForkParentKey(
   thread: SidebarForkLineageInput,
   threadsByKey: ReadonlyMap<string, SidebarForkLineageInput>,
 ): string | null {
-  if (thread.lineage.relationshipToParent !== "fork") return null;
+  if (thread.lineage.relationshipToParent !== "fork" && thread.lineage.sideChat !== true) {
+    return null;
+  }
   const selfKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
   const rawParentId =
     thread.forkedFrom?.type === "run" ? thread.forkedFrom.threadId : thread.lineage.parentThreadId;
@@ -669,7 +677,7 @@ function resolveSidebarForkParentKey(
     if (candidate === undefined) {
       return candidateKey;
     }
-    if (!isSidebarHiddenThread(candidate)) {
+    if (!isSidebarSubagentThread(candidate)) {
       return candidateKey;
     }
     if (candidate.lineage.parentThreadId === null) return null;
@@ -756,6 +764,7 @@ export interface SidebarForkTreeEntry<T> {
   readonly parentBranch: string | null;
   readonly depth: 0 | 1 | 2;
   readonly forkCount: number;
+  readonly sideChatCount: number;
   readonly forksCollapsed: boolean;
   readonly hiddenForks: readonly T[];
   readonly rail1Continues: boolean;
@@ -779,7 +788,9 @@ function hasCycleWithinSet(
 }
 
 export function buildSidebarForkTree<
-  T extends Pick<SidebarThreadSummary, "id" | "environmentId" | "branch">,
+  T extends Pick<SidebarThreadSummary, "id" | "environmentId" | "branch"> & {
+    readonly lineage?: Pick<SidebarThreadSummary["lineage"], "sideChat"> | undefined;
+  },
 >(input: {
   readonly threads: readonly T[];
   readonly forkParentKeyByKey: ReadonlyMap<string, string | null>;
@@ -874,6 +885,7 @@ export function buildSidebarForkTree<
     parentBranch: string | null;
     depth: 0 | 1 | 2;
     forkCount: number;
+    sideChatCount: number;
     forksCollapsed: boolean;
     hiddenForks: readonly T[];
     rail1Continues: boolean;
@@ -899,6 +911,7 @@ export function buildSidebarForkTree<
     const key = keyOf(thread);
     const children = childrenByParent.get(key) ?? [];
     const descendants = getDescendants(key);
+    const sideChatCount = descendants.filter((item) => item.lineage?.sideChat === true).length;
     const collapsed = children.length > 0 && input.collapsedParentKeys.has(key);
     const hiddenForks: T[] = [];
     if (collapsed) collectHidden(key, hiddenForks);
@@ -911,6 +924,7 @@ export function buildSidebarForkTree<
       parentBranch,
       depth,
       forkCount: descendants.length,
+      sideChatCount,
       forksCollapsed: collapsed,
       hiddenForks,
       rail1Continues: false,
@@ -1007,9 +1021,9 @@ export function sortActiveRootsWithForkFamilies<
   );
 }
 
-// Subagent and side-chat threads have no sidebar row, so an open one is represented by
-// its nearest listed ancestor. A broken chain (missing parent, cycle,
-// other environment) resolves to the thread itself, which then matches no row.
+// Subagent threads have no sidebar row, so an open one is represented by its
+// nearest non-subagent ancestor. A broken chain (missing parent, cycle, other
+// environment) resolves to the thread itself, which then matches no row.
 export function resolveSidebarRowThreadId(
   threadId: ThreadId,
   environmentId: EnvironmentId,
@@ -1019,7 +1033,7 @@ export function resolveSidebarRowThreadId(
     threads.find((thread) => thread.id === id && thread.environmentId === environmentId);
   const visited = new Set<ThreadId>();
   let thread = findThread(threadId);
-  while (thread !== undefined && isSidebarHiddenThread(thread)) {
+  while (thread !== undefined && isSidebarSubagentThread(thread)) {
     if (thread.lineage.parentThreadId === null || visited.has(thread.id)) return threadId;
     visited.add(thread.id);
     thread = findThread(thread.lineage.parentThreadId);
@@ -1043,11 +1057,12 @@ export function filterSidebarV2VisibleThreads<
   return threads.filter(
     (thread) =>
       thread.archivedAt === null &&
-      !isShownUnderParent(
-        { environmentId: thread.environmentId, threadId: thread.id },
-        thread.lineage,
-        delegatedUnderParent,
-      ) &&
+      (thread.lineage.sideChat === true ||
+        !isShownUnderParent(
+          { environmentId: thread.environmentId, threadId: thread.id },
+          thread.lineage,
+          delegatedUnderParent,
+        )) &&
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );

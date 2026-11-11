@@ -1,11 +1,12 @@
 import { DEFAULT_CLIENT_SETTINGS, EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import { render } from "../../test/render";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { __setClientSettingsForTests, getClientSettings } from "../hooks/useSettings";
+import { selectActiveRightPanelSurface, useRightPanelStore } from "../rightPanelStore";
 import {
   useProjects,
   useQuietThreadShells,
@@ -95,6 +96,7 @@ describe("sidebar header new thread", () => {
 
 describe("sidebar forked threads", () => {
   it("nests forks as compact sub-rows beneath their parent, toggles collapse, and shows a parent chip when orphaned", async () => {
+    await page.viewport(1280, 800);
     using stack = new DisposableStack();
     const previousSettings = getClientSettings();
     localStorage.removeItem("t3code:sidebar:collapsed-fork-parents");
@@ -145,6 +147,21 @@ describe("sidebar forked threads", () => {
         relationshipToParent: "fork",
       },
     });
+    const sideChat = makeThreadFixture({
+      id: ThreadId.make("btw-1"),
+      environmentId,
+      projectId: t3Project.id,
+      title: "Why does WAL checkpoint block?",
+      branch: "feat/sqlite-sessions",
+      userAuthoredMessageCount: 1,
+      createdAt: "2026-03-09T10:01:00.000Z",
+      lineage: {
+        rootThreadId: parent.id,
+        parentThreadId: parent.id,
+        relationshipToParent: "fork",
+        sideChat: true,
+      },
+    });
     const settledParent = makeThreadFixture({
       id: ThreadId.make("settled-parent"),
       environmentId,
@@ -153,6 +170,20 @@ describe("sidebar forked threads", () => {
       settledOverride: "settled",
       settledAt: "2026-03-09T09:00:00.000Z",
       userAuthoredMessageCount: 4,
+    });
+    const settledParentSideChat = makeThreadFixture({
+      id: ThreadId.make("settled-parent-btw"),
+      environmentId,
+      projectId: t3Project.id,
+      title: "Old side tangent",
+      userAuthoredMessageCount: 1,
+      createdAt: "2026-03-09T09:10:00.000Z",
+      lineage: {
+        rootThreadId: settledParent.id,
+        parentThreadId: settledParent.id,
+        relationshipToParent: "fork",
+        sideChat: true,
+      },
     });
     const orphanActiveFork = makeThreadFixture({
       id: ThreadId.make("orphan-fork"),
@@ -167,10 +198,20 @@ describe("sidebar forked threads", () => {
         relationshipToParent: "fork",
       },
     });
-    const shells = [parent, forkDistinctBranch, forkSameBranch, settledParent, orphanActiveFork];
+    const shells = [
+      parent,
+      forkDistinctBranch,
+      forkSameBranch,
+      sideChat,
+      settledParent,
+      settledParentSideChat,
+      orphanActiveFork,
+    ];
     const shellByKey = new Map(
       shells.map((shell) => [`${shell.environmentId}:${shell.id}`, shell]),
     );
+    useRightPanelStore.setState({ byThreadKey: {} });
+    stack.defer(() => useRightPanelStore.setState({ byThreadKey: {} }));
     vi.mocked(useProjects).mockReturnValue([t3Project]);
     vi.mocked(useQuietThreadShells).mockReturnValue(shells);
     vi.mocked(useThreadShell).mockImplementation((ref) =>
@@ -198,18 +239,34 @@ describe("sidebar forked threads", () => {
       .element(forkRows.nth(0))
       .toHaveAttribute("aria-label", "Try WAL mode pool, t3code");
     await expect.element(forkRows.nth(1)).toHaveAttribute("aria-label", "Benchmark DuckDB, t3code");
+    await expect
+      .element(forkRows.nth(2))
+      .toHaveAttribute("aria-label", "Why does WAL checkpoint block?, t3code");
     expect(forkRows.nth(0).element().textContent).toContain("feat/sqlite-wal");
     expect(forkRows.nth(1).element().textContent).not.toContain("feat/sqlite-sessions");
+    await expect.element(screen.getByText("Old side tangent")).not.toBeInTheDocument();
+
+    await userEvent.click(forkRows.nth(2));
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, {
+        environmentId,
+        threadId: parent.id,
+      }),
+    ).toEqual({
+      id: `side-chat:${sideChat.id}`,
+      kind: "side-chat",
+      threadId: sideChat.id,
+    });
 
     await expect
       .element(screen.getByRole("button", { name: "Open parent thread: Legacy auth cleanup" }))
       .toBeVisible();
 
-    const collapseToggle = screen.getByRole("button", { name: "Collapse 2 forks" });
+    const collapseToggle = screen.getByRole("button", { name: "Collapse 3 branches" });
     await userEvent.click(collapseToggle);
     await expect.element(screen.getByTestId("sidebar-row-fork")).not.toBeInTheDocument();
 
-    const expandToggle = screen.getByRole("button", { name: "Expand 2 forks" });
+    const expandToggle = screen.getByRole("button", { name: "Expand 3 branches" });
     await userEvent.click(expandToggle);
     await expect
       .element(forkRows.nth(0))
