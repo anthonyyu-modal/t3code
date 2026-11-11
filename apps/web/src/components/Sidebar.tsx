@@ -63,10 +63,7 @@ import {
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
-import {
-  resolveListedAncestorThreadRef,
-  type OlderSettledScope,
-} from "@t3tools/client-runtime/state/threads";
+import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 
 import {
   CheckIcon,
@@ -104,6 +101,7 @@ import {
   threadTraversalDirectionFromCommand,
 } from "../keybindings";
 import { isModelPickerOpen } from "../modelPickerVisibility";
+import { selectActiveRightPanelSurface, useRightPanelStore } from "../rightPanelStore";
 import { isMacPlatform } from "~/lib/utils";
 import { readLocalApi } from "../localApi";
 import { configuredHostedAppUrl } from "../hostedPairing";
@@ -225,6 +223,7 @@ import {
   type SidebarForkTreeEntry,
   type SidebarListItem,
   type SidebarSection,
+  resolveSidebarRowThreadRef,
 } from "./Sidebar.logic";
 import {
   createSidebarCollisionDetection,
@@ -387,6 +386,7 @@ interface SidebarThreadPartitionInput {
   /** Boring mode: folders list active threads by the user's latest message. */
   readonly sortActiveBySend: boolean;
   readonly quickThreadMaxMessages: number | null;
+  readonly routeRowThreadKey: string | null;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -532,6 +532,7 @@ function useSidebarThreads(input: {
     workingShelfEnabled,
     sortActiveBySend: folderGroups !== null,
     quickThreadMaxMessages,
+    routeRowThreadKey,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
@@ -749,6 +750,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     workingShelfEnabled,
     sortActiveBySend,
     quickThreadMaxMessages,
+    routeRowThreadKey,
   } = input;
   const preciseNow = new Date().toISOString();
   const allThreadByKey = new Map(
@@ -759,6 +761,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
   const explicitPinned: EnvironmentThreadShell[] = [];
   const inboxCandidates: EnvironmentThreadShell[] = [];
+  const sideChatCandidates: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
   const snoozed: EnvironmentThreadShell[] = [];
   const settled: EnvironmentThreadShell[] = [];
@@ -770,6 +773,17 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   for (const thread of visible) {
     const configLoaded = serverConfigs.has(thread.environmentId);
     const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+    if (thread.lineage.sideChat === true) {
+      const parked =
+        (optimisticDrop?.key === threadKey && optimisticDrop.section === "settled") ||
+        (configLoaded &&
+          (effectiveSnoozed(thread, { now: preciseNow }) || thread.settledOverride === "settled"));
+      // Settled side chats stay out of the Settled shelf so server olderSettled counts never drift.
+      if (!parked || threadKey === routeRowThreadKey) {
+        sideChatCandidates.push(thread);
+      }
+      continue;
+    }
     if (optimisticDrop?.key === threadKey) {
       const projected = applySidebarThreadDrop(
         thread,
@@ -842,6 +856,30 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const quick: EnvironmentThreadShell[] = [];
   for (const thread of remainingInbox) {
     (quickFamilyKeys.has(threadShellKey(thread)) ? quick : active).push(thread);
+  }
+
+  if (sideChatCandidates.length > 0) {
+    const pinnedParentKeys = new Set([
+      ...explicitPinned.map(threadShellKey),
+      ...pinnedNestedForks.map(threadShellKey),
+    ]);
+    const activeParentKeys = new Set(active.map(threadShellKey));
+    const quickParentKeys = new Set(quick.map(threadShellKey));
+    const workingParentKeys = new Set(working.map(threadShellKey));
+    for (const sideChat of sideChatCandidates) {
+      const parentKey = forkParentKeyByKey.get(threadShellKey(sideChat)) ?? null;
+      if (parentKey !== null && pinnedParentKeys.has(parentKey)) {
+        pinnedNestedForks.push(sideChat);
+      } else if (parentKey !== null && activeParentKeys.has(parentKey)) {
+        active.push(sideChat);
+      } else if (parentKey !== null && quickParentKeys.has(parentKey)) {
+        quick.push(sideChat);
+      } else if (parentKey !== null && workingParentKeys.has(parentKey)) {
+        working.push(sideChat);
+      } else if (threadShellKey(sideChat) === routeRowThreadKey) {
+        active.push(sideChat);
+      }
+    }
   }
 
   // Availability gates dragging only; sorting must stay consistent across clients.
@@ -1319,7 +1357,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const routeRowThreadKey =
     routeThreadRef === null
       ? null
-      : scopedThreadKey(resolveListedAncestorThreadRef(routeThreadRef, threads));
+      : scopedThreadKey(resolveSidebarRowThreadRef(routeThreadRef, threads));
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
   // The open draft's first send names its thread in place; a finalized draft reached by
   // navigation resolves through its redirect instead, and still reveals.
@@ -1578,7 +1616,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
   });
   const localLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
+  const activeSideChatThreadId = useRightPanelStore((state) => {
+    const surface = selectActiveRightPanelSurface(state.byThreadKey, routeThreadRef);
+    return surface?.kind === "thread" ? surface.threadId : null;
+  });
   const handleToggleForks = useStableCallback(toggleForkParent);
+  const activeSideChatKey =
+    routeThreadRef !== null && activeSideChatThreadId !== null
+      ? scopedThreadKey(scopeThreadRef(routeThreadRef.environmentId, activeSideChatThreadId))
+      : null;
 
   // Ranked across environments as the palette ranks them, so one
   // environment's list does not sit above another's better matches; rows
@@ -1689,6 +1735,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     }
     if (isMobile) {
       setOpenMobile(false);
+    }
+    const targetKey = scopedThreadKey(threadRef);
+    const shell = allThreadByKey.get(targetKey) ?? readThreadShell(threadRef);
+    if (shell?.lineage.sideChat === true && shell.lineage.parentThreadId !== null) {
+      const parentRef = scopeThreadRef(shell.environmentId, shell.lineage.parentThreadId);
+      const parentKey = scopedThreadKey(parentRef);
+      if (allThreadByKey.has(parentKey)) {
+        useRightPanelStore.getState().openThread(parentRef, shell.id);
+        if (routeThreadKey === parentKey) return Promise.resolve();
+        return router.navigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(parentRef),
+        });
+      }
     }
     return router.navigate({
       to: "/$environmentId/$threadId",
@@ -2204,6 +2264,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         ...(entry.depth > 0
           ? { rootKey: entry.rootKey, parentKey: entry.parentKey ?? entry.rootKey }
           : {}),
+        ...(entry.thread.lineage.sideChat === true ? { sideChat: true } : {}),
       }));
     // Boring mode keeps a pinned open project or one the user filtered to, so it can start a thread.
     if (
@@ -2973,9 +3034,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               canRename: !fromSearch,
               supports: {
                 settlement: configLoaded,
-                autoSettleOptOut: supportsAutoSettleOptOut,
-                snooze: configLoaded,
-                pinning: configLoaded,
+                autoSettleOptOut: supportsAutoSettleOptOut && thread.lineage.sideChat !== true,
+                snooze: configLoaded && thread.lineage.sideChat !== true,
+                pinning: configLoaded && thread.lineage.sideChat !== true,
                 titleRegeneration: configLoaded,
               },
               snoozePresets,
@@ -3735,6 +3796,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       );
                       const forkEntry = forkEntryByKey.get(threadKey);
                       const isForkRow = forkEntry !== undefined && forkEntry.depth > 0;
+                      const isSideChat = thread.lineage.sideChat === true;
                       const isCard =
                         section === "active" ||
                         section === "pinned" ||
@@ -3786,6 +3848,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           forkRail1Continues={forkEntry?.rail1Continues ?? false}
                           forkRail2Continues={forkEntry?.rail2Continues ?? false}
                           forkCount={forkEntry?.forkCount ?? 0}
+                          sideChatCount={forkEntry?.sideChatCount ?? 0}
                           forksCollapsed={forkEntry?.forksCollapsed ?? false}
                           forksHiddenDot={forksHiddenDot}
                           forkParentBranch={forkEntry?.parentBranch ?? null}
@@ -3816,8 +3879,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 : "settle"
                           }
                           settlementSupported={serverConfigs.has(thread.environmentId)}
-                          snoozeSupported={serverConfigs.has(thread.environmentId)}
-                          pinningSupported={serverConfigs.has(thread.environmentId)}
+                          snoozeSupported={!isSideChat && serverConfigs.has(thread.environmentId)}
+                          pinningSupported={!isSideChat && serverConfigs.has(thread.environmentId)}
                           isPinned={thread.pinnedAt != null}
                           dropVerb={
                             dragState?.activeKey === threadKey
@@ -3838,7 +3901,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               : null
                           }
                           wokeAt={threadWokeAt(thread, { now: snoozeNow })}
-                          isActive={routeRowThreadKey === threadKey}
+                          isActive={
+                            routeRowThreadKey === threadKey || activeSideChatKey === threadKey
+                          }
                           revealRef={routeRowThreadKey === threadKey ? revealActiveRow : undefined}
                           isRouteThread={routeThreadKey === threadKey}
                           readOpensPullRequestsInRightPanel={readOpensPullRequestsInRightPanel}
