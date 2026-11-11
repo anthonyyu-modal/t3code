@@ -183,16 +183,21 @@ import {
 } from "./threadActionMenu.logic";
 import {
   applySidebarThreadDrop,
+  buildSidebarForkParentKeyMap,
+  buildSidebarForkTree,
   filterSidebarV2VisibleThreads,
   groupSidebarThreadsByProject,
+  resolveSidebarFolderDot,
+  resolveSidebarQuickForkFamilyKeys,
+  resolveThreadLastVisitedAt,
   sidebarFolderExpansionKeys,
+  sortActiveRootsWithForkFamilies,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
   ADD_PROJECT_SCOPE_ITEM_VALUE,
   filterSidebarProjectScopeItems,
   firstValidTimestampMs,
-  isQuickSidebarThread,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -212,11 +217,11 @@ import {
   sidebarThreadKeyAtY,
   sortInboxThreadsByReturn,
   sortPinnedThreadsForSidebar,
-  sortThreadsForSidebar,
   sortWorkingThreadsBySend,
   useSnoozeWakeClock,
   threadShortcutContext,
   useThreadJumpHintsVisible,
+  type SidebarForkTreeEntry,
   type SidebarListItem,
   type SidebarSection,
 } from "./Sidebar.logic";
@@ -344,6 +349,8 @@ const sidebarProviderEntriesAtom = Atom.make((get) => {
 const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, SidebarProviderEntry> = new Map();
 const EMPTY_THREADS: readonly EnvironmentThreadShell[] = [];
 const EMPTY_DRAFT_IDS: readonly DraftId[] = [];
+const EMPTY_COLLAPSED_FORK_PARENTS: readonly string[] = [];
+const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
 
 const SETTLED_TAIL_INITIAL_COUNT = 10;
 const SETTLED_TAIL_PAGE_COUNT = 25;
@@ -351,6 +358,8 @@ const SETTLED_SHELF_EXPANDED_KEY = "t3code:sidebar:settled-expanded";
 const SNOOZED_SHELF_EXPANDED_KEY = "t3code:sidebar:snoozed-expanded";
 const WORKING_SHELF_EXPANDED_KEY = "t3code:sidebar:working-expanded";
 const QUICK_SHELF_EXPANDED_KEY = "t3code:sidebar:quick-expanded";
+const COLLAPSED_FORK_PARENTS_KEY = "t3code:sidebar:collapsed-fork-parents";
+const COLLAPSED_FORK_PARENTS_SCHEMA = Schema.Array(Schema.String);
 
 const inboxReturns = createInboxReturnTracker();
 
@@ -494,6 +503,11 @@ function useSidebarThreads(input: {
     true,
     Schema.Boolean,
   );
+  const [collapsedForkParentList, setCollapsedForkParentList] = useLocalStorage(
+    COLLAPSED_FORK_PARENTS_KEY,
+    EMPTY_COLLAPSED_FORK_PARENTS,
+    COLLAPSED_FORK_PARENTS_SCHEMA,
+  );
   // Shared with the old per-project sidebar, so folders keep their open state.
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
@@ -520,22 +534,30 @@ function useSidebarThreads(input: {
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
-  const {
-    pinnedThreads,
-    activeThreads,
-    quickThreads,
-    workingThreads,
-    snoozedThreads,
-    settledThreads,
-  } = partition;
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
     expanded: settledShelfExpanded,
     visibleCount: settledVisibleCount,
   });
-  const listedSettledThreads = settledThreads.filter(olderSettledShelf.isListed);
+  const listedSettledThreads = partition.settledThreads.filter(olderSettledShelf.isListed);
   useOlderSettledShelfGrowth(olderSettledShelf, listedSettledThreads);
+
+  const {
+    pinnedThreads,
+    pinnedRootKeys,
+    activeThreads,
+    activeRootThreads,
+    activeRootOrder,
+    quickThreads,
+    workingThreads,
+    snoozedThreads,
+    settledThreads,
+    forkParentKeyByKey,
+    allThreadByKey,
+  } = partition;
+  const collapsedForkParents =
+    collapsedForkParentList.length === 0 ? EMPTY_STRING_SET : new Set(collapsedForkParentList);
   const settledCount =
     settledThreads.length + olderSettledShelf.unloadedCount(partition.visibleThreads);
   const visibleSettledThreads = (() => {
@@ -557,9 +579,23 @@ function useSidebarThreads(input: {
   const visibleSnoozedThreads = snoozedShelfExpanded
     ? snoozedThreads
     : routeThreadOnly(snoozedThreads, shelfRouteThreadKey);
-  const visibleWorkingThreads = workingShelfExpanded
-    ? workingThreads
-    : routeThreadOnly(workingThreads, routeRowThreadKey);
+  const pinnedEntries = buildSidebarForkTree({
+    threads: pinnedThreads,
+    forkParentKeyByKey,
+    collapsedParentKeys: collapsedForkParents,
+    revealKey: routeRowThreadKey,
+    rootOrder: pinnedRootKeys,
+  });
+  const activeEntries =
+    folderGroups === null
+      ? buildSidebarForkTree({
+          threads: activeThreads,
+          forkParentKeyByKey,
+          collapsedParentKeys: collapsedForkParents,
+          revealKey: routeRowThreadKey,
+          rootOrder: activeRootOrder,
+        })
+      : [];
   const projectFolders =
     folderGroups === null
       ? null
@@ -568,25 +604,54 @@ function useSidebarThreads(input: {
             projectExpandedById,
             sidebarFolderExpansionKeys(folder.group),
           );
+          const entries = buildSidebarForkTree({
+            threads: collapsed
+              ? routeThreadOnly(folder.threads, routeRowThreadKey)
+              : folder.threads,
+            forkParentKeyByKey,
+            collapsedParentKeys: collapsed ? EMPTY_STRING_SET : collapsedForkParents,
+            revealKey: routeRowThreadKey,
+          });
           return {
             group: folder.group,
             collapsed,
             // A closed folder still shows the open thread, and hints at the rest.
-            threads: collapsed
-              ? routeThreadOnly(folder.threads, routeRowThreadKey)
-              : folder.threads,
+            threads: entries.map((entry) => entry.thread),
+            entries,
             hiddenThreads: collapsed
               ? folder.threads.filter((thread) => threadShellKey(thread) !== routeRowThreadKey)
               : EMPTY_THREADS,
           };
         });
-  const visibleQuickThreads = quickShelfExpanded
-    ? quickThreads
-    : routeThreadOnly(quickThreads, routeRowThreadKey);
+  const quickEntries = buildSidebarForkTree({
+    threads: quickShelfExpanded ? quickThreads : routeThreadOnly(quickThreads, routeRowThreadKey),
+    forkParentKeyByKey,
+    collapsedParentKeys: quickShelfExpanded ? collapsedForkParents : EMPTY_STRING_SET,
+    revealKey: routeRowThreadKey,
+  });
+  const workingEntries = buildSidebarForkTree({
+    threads: workingShelfExpanded
+      ? workingThreads
+      : routeThreadOnly(workingThreads, routeRowThreadKey),
+    forkParentKeyByKey,
+    collapsedParentKeys: workingShelfExpanded ? collapsedForkParents : EMPTY_STRING_SET,
+    revealKey: routeRowThreadKey,
+  });
+  const visibleQuickThreads = quickEntries.map((entry) => entry.thread);
+  const visibleWorkingThreads = workingEntries.map((entry) => entry.thread);
+  const forkEntryByKey = new Map<string, SidebarForkTreeEntry<EnvironmentThreadShell>>();
+  for (const list of [
+    pinnedEntries,
+    ...(projectFolders === null ? [activeEntries] : projectFolders.map((folder) => folder.entries)),
+    quickEntries,
+    workingEntries,
+  ]) {
+    for (const entry of list) forkEntryByKey.set(entry.key, entry);
+  }
   const orderedThreads = [
-    ...pinnedThreads,
+    ...pinnedEntries.map((entry) => entry.thread),
     ...(projectFolders === null
-      ? activeThreads
+      ? activeEntries.map((entry) => entry.thread)
       : projectFolders.flatMap((folder) => folder.threads)),
     ...visibleQuickThreads,
     ...visibleWorkingThreads,
@@ -638,17 +703,29 @@ function useSidebarThreads(input: {
     },
     quickShelfExpanded,
     toggleQuickShelf: () => setQuickShelfExpanded((value) => !value),
+    toggleForkParent: (parentKey: string) =>
+      setCollapsedForkParentList((current) =>
+        current.includes(parentKey)
+          ? current.filter((key) => key !== parentKey)
+          : [...current, parentKey],
+      ),
+    pinnedEntries,
+    activeEntries,
+    quickEntries,
+    workingEntries,
+    forkEntryByKey,
+    forkParentKeyByKey,
+    allThreadByKey,
+    activeRootThreads,
     renderedSettledThreads,
     visibleSnoozedThreads,
-    visibleWorkingThreads,
-    visibleQuickThreads,
     orderedThreadKeys: orderedThreads.map(threadShellKey),
     threadByKey: new Map(orderedThreads.map((thread) => [threadShellKey(thread), thread] as const)),
     settledThreadKeys: new Set(settledThreads.map(threadShellKey)),
     snoozedThreadKeys: new Set(snoozedThreads.map(threadShellKey)),
     sectionByThreadKey,
-    pinnedKeys: pinnedThreads.map(threadShellKey),
-    activeKeys: activeThreads.map(threadShellKey),
+    pinnedKeys: pinnedRootKeys,
+    activeKeys: activeRootThreads.map(threadShellKey),
     pinnedKeysById: new Map(
       threads.map((thread) => [threadShellKey(thread), thread.pinOrderKey ?? null] as const),
     ),
@@ -673,19 +750,15 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     quickThreadMaxMessages,
   } = input;
   const preciseNow = new Date().toISOString();
+  const allThreadByKey = new Map(
+    threads.map((thread) => [threadShellKey(thread), thread] as const),
+  );
+  const forkParentKeyByKey = buildSidebarForkParentKeyMap(threads);
   const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
-  const pinned: EnvironmentThreadShell[] = [];
-  const active: EnvironmentThreadShell[] = [];
-  const quick: EnvironmentThreadShell[] = [];
+  const explicitPinned: EnvironmentThreadShell[] = [];
+  const inboxCandidates: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
-  const inbox = (thread: EnvironmentThreadShell, manuallyMoved = false) =>
-    workingShelfEnabled &&
-    (manuallyMoved ? isThreadWorking(thread) : inboxObservation.isWorking(thread))
-      ? working
-      : isQuickSidebarThread(thread, quickThreadMaxMessages)
-        ? quick
-        : active;
   const snoozed: EnvironmentThreadShell[] = [];
   const settled: EnvironmentThreadShell[] = [];
   const { draggableThreadKeys, activeReorderableThreadKeys } = resolveSidebarReorderableThreadKeys({
@@ -703,58 +776,127 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
         optimisticDrop.occurredAt,
         optimisticDrop.assignedKeys.get(threadKey),
       );
-      (optimisticDrop.section === "pinned"
-        ? pinned
-        : optimisticDrop.section === "settled"
-          ? settled
-          : inbox(projected, true)
-      ).push(
-        optimisticDrop.clearsSnooze
-          ? projected
-          : { ...projected, snoozedAt: thread.snoozedAt, snoozedUntil: thread.snoozedUntil },
-      );
+      const nextThread = optimisticDrop.clearsSnooze
+        ? projected
+        : { ...projected, snoozedAt: thread.snoozedAt, snoozedUntil: thread.snoozedUntil };
+      if (optimisticDrop.section === "pinned") {
+        explicitPinned.push(nextThread);
+      } else if (optimisticDrop.section === "settled") {
+        settled.push(nextThread);
+      } else if (workingShelfEnabled && isThreadWorking(projected)) {
+        working.push(nextThread);
+      } else {
+        inboxCandidates.push(nextThread);
+      }
     } else {
       const section = resolveSidebarThreadSection({
         snoozed: configLoaded && effectiveSnoozed(thread, { now: preciseNow }),
         settled: configLoaded && thread.settledOverride === "settled",
         pinned: thread.pinnedAt != null,
       });
-      (section === "snoozed"
-        ? snoozed
-        : section === "settled"
-          ? settled
-          : section === "pinned"
-            ? pinned
-            : inbox(thread)
-      ).push(thread);
+      if (section === "snoozed") {
+        snoozed.push(thread);
+      } else if (section === "settled") {
+        settled.push(thread);
+      } else if (section === "pinned") {
+        explicitPinned.push(thread);
+      } else if (workingShelfEnabled && inboxObservation.isWorking(thread)) {
+        working.push(thread);
+      } else {
+        inboxCandidates.push(thread);
+      }
     }
   }
+
+  // Live unpinned forks of a pinned parent nest beneath that parent rather than splitting into Active.
+  const explicitPinnedKeySet = new Set(explicitPinned.map(threadShellKey));
+  const inboxCandidateKeySet = new Set(inboxCandidates.map(threadShellKey));
+  const hasPinnedLiveAncestor = (startKey: string): boolean => {
+    const seen = new Set<string>([startKey]);
+    let cursor = forkParentKeyByKey.get(startKey) ?? null;
+    while (cursor !== null && !seen.has(cursor)) {
+      if (explicitPinnedKeySet.has(cursor)) return true;
+      if (!inboxCandidateKeySet.has(cursor)) return false;
+      seen.add(cursor);
+      cursor = forkParentKeyByKey.get(cursor) ?? null;
+    }
+    return false;
+  };
+  const pinnedNestedForks: EnvironmentThreadShell[] = [];
+  const remainingInbox: EnvironmentThreadShell[] = [];
+  for (const thread of inboxCandidates) {
+    if (hasPinnedLiveAncestor(threadShellKey(thread))) {
+      pinnedNestedForks.push(thread);
+    } else {
+      remainingInbox.push(thread);
+    }
+  }
+
+  const quickFamilyKeys = resolveSidebarQuickForkFamilyKeys(
+    remainingInbox,
+    forkParentKeyByKey,
+    quickThreadMaxMessages,
+  );
+  const active: EnvironmentThreadShell[] = [];
+  const quick: EnvironmentThreadShell[] = [];
+  for (const thread of remainingInbox) {
+    (quickFamilyKeys.has(threadShellKey(thread)) ? quick : active).push(thread);
+  }
+
   // Availability gates dragging only; sorting must stay consistent across clients.
-  const sortedPinned = sortPinnedThreadsForSidebar(pinned);
+  const sortedPinnedRoots = sortPinnedThreadsForSidebar(explicitPinned);
+  const orderedPinnedRoots =
+    optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
+      ? sortedPinnedRoots
+      : orderItemsByPreferredIds({
+          items: sortedPinnedRoots,
+          preferredIds: optimisticDrop.order,
+          getId: threadShellKey,
+        });
+  const pinnedRootKeys = orderedPinnedRoots.map(threadShellKey);
+  const pinnedThreads = [
+    ...orderedPinnedRoots,
+    ...sortInboxThreadsByReturn(pinnedNestedForks, inboxObservation.returnedAt),
+  ];
+
   const sortedActive = sortActiveBySend
     ? sortWorkingThreadsBySend(active)
-    : workingShelfEnabled
-      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
-      : sortThreadsForSidebar(active);
-  return {
-    pinnedThreads:
-      optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
-        ? sortedPinned
+    : sortInboxThreadsByReturn(active, inboxObservation.returnedAt);
+  const activeKeySet = new Set(active.map(threadShellKey));
+  const isActiveRoot = (thread: EnvironmentThreadShell) => {
+    const parentKey = forkParentKeyByKey.get(threadShellKey(thread)) ?? null;
+    return parentKey === null || !activeKeySet.has(parentKey);
+  };
+  let activeRootOrder: readonly string[] | undefined;
+  if (!sortActiveBySend && !workingShelfEnabled) {
+    const baseRootOrder = sortActiveRootsWithForkFamilies(active, forkParentKeyByKey);
+    activeRootOrder =
+      optimisticDrop?.section !== "active" || optimisticDrop.order === null
+        ? baseRootOrder
         : orderItemsByPreferredIds({
-            items: sortedPinned,
+            items: baseRootOrder,
             preferredIds: optimisticDrop.order,
-            getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-          }),
+            getId: (key) => key,
+          });
+  }
+  const activeRootsUnsorted = active.filter(isActiveRoot);
+  const activeRootThreads =
+    activeRootOrder !== undefined
+      ? orderItemsByPreferredIds({
+          items: activeRootsUnsorted,
+          preferredIds: activeRootOrder,
+          getId: threadShellKey,
+        })
+      : sortedActive.filter(isActiveRoot);
+
+  return {
+    pinnedThreads,
+    pinnedRootKeys,
     draggableThreadKeys,
     activeReorderableThreadKeys,
-    activeThreads:
-      optimisticDrop?.section !== "active" || optimisticDrop.order === null
-        ? sortedActive
-        : orderItemsByPreferredIds({
-            items: sortedActive,
-            preferredIds: optimisticDrop.order,
-            getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-          }),
+    activeThreads: sortedActive,
+    activeRootThreads,
+    activeRootOrder,
     // Quick rows cannot be reordered by hand, so the latest activity, usually
     // the last finished run, goes first.
     quickThreads: sortInboxThreadsByReturn(quick, inboxObservation.returnedAt),
@@ -766,6 +908,8 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     ),
     settledThreads: sortSettledThreads(settled),
     visibleThreads: visible,
+    forkParentKeyByKey,
+    allThreadByKey,
     snoozeNow: preciseNow,
   };
 }
@@ -1394,10 +1538,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     toggleProjectFolder,
     quickShelfExpanded,
     toggleQuickShelf,
+    toggleForkParent,
+    pinnedEntries,
+    activeEntries,
+    quickEntries,
+    workingEntries,
+    forkEntryByKey,
+    forkParentKeyByKey,
+    allThreadByKey,
+    activeRootThreads,
     renderedSettledThreads,
     visibleSnoozedThreads,
-    visibleWorkingThreads,
-    visibleQuickThreads,
     orderedThreadKeys,
     threadByKey,
     settledThreadKeys,
@@ -1426,6 +1577,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     keepEmptyFolders: (group) =>
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
   });
+  const localLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
+  const handleToggleForks = useStableCallback(toggleForkParent);
 
   // Ranked across environments as the palette ranks them, so one
   // environment's list does not sit above another's better matches; rows
@@ -2037,6 +2190,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const key = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
         return { kind: "thread", key, section };
       });
+    const entryRowsOf = (
+      entries: readonly SidebarForkTreeEntry<EnvironmentThreadShell>[],
+      section: SidebarSection,
+    ): SidebarListItem[] =>
+      entries.map((entry) => ({
+        kind: "thread",
+        key: entry.key,
+        section,
+        ...(entry.depth > 0
+          ? { rootKey: entry.rootKey, parentKey: entry.parentKey ?? entry.rootKey }
+          : {}),
+      }));
     // Boring mode keeps a pinned open project or one the user filtered to, so it can start a thread.
     if (
       !hasProjectFolders &&
@@ -2051,19 +2216,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       return [];
     }
     const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
-    const pinnedRows = rowsOf(pinnedThreads, "pinned");
-    items.push(...pinnedRows);
+    items.push(...entryRowsOf(pinnedEntries, "pinned"));
     items.push({ kind: "marker", marker: "pinned-divider" });
-    const activeRows = rowsOf(activeThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
-    items.push(...activeRows);
+    items.push(...entryRowsOf(activeEntries, "active"));
     if (quickThreads.length > 0) {
       items.push({ kind: "marker", marker: "quick-header" });
-      items.push(...rowsOf(visibleQuickThreads, "quick"));
+      items.push(...entryRowsOf(quickEntries, "quick"));
     }
     if (workingThreads.length > 0) {
       items.push({ kind: "marker", marker: "working-header" });
-      items.push(...rowsOf(visibleWorkingThreads, "working"));
+      items.push(...entryRowsOf(workingEntries, "working"));
     }
     if (snoozedThreads.length > 0) {
       items.push({ kind: "marker", marker: "snoozed-header" });
@@ -2077,7 +2240,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   })();
   // Preserve the list while streamed updates leave order unchanged to retain row memoization.
   const sidebarListItemsKey = sidebarListItemsFresh
-    .map((item) => (item.kind === "thread" ? item.section + ":" + item.key : item.marker))
+    .map((item) =>
+      item.kind === "thread"
+        ? `${item.section}:${item.key}:${item.parentKey ?? ""}:${item.rootKey ?? ""}`
+        : item.marker,
+    )
     .join("\n");
   const [sidebarListItemsState, setSidebarListItems] = useState(sidebarListItemsFresh);
   const [sidebarListItemsKeyState, setSidebarListItemsKeyState] = useState(sidebarListItemsKey);
@@ -2141,7 +2308,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           drag: dragState,
           threadByKey,
           settledThreads,
-          activeThreads,
+          activeThreads: activeRootThreads,
           workingShelfEnabled,
         });
   const sidebarSortingStrategy = createSidebarSortingStrategy({
@@ -3565,18 +3732,43 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
                         );
+                        const forkEntry = forkEntryByKey.get(threadKey);
+                        const isForkRow = forkEntry !== undefined && forkEntry.depth > 0;
                         const isCard =
                           section === "active" ||
                           section === "pinned" ||
                           section === "quick" ||
                           section === "working";
-                        const rowVariant = folderRow
-                          ? folderRowsMultiline
-                            ? "folder-multiline"
-                            : "folder"
-                          : isCard
-                            ? "card"
-                            : "slim";
+                        const rowVariant = isForkRow
+                          ? folderRow
+                            ? "folder-fork"
+                            : "fork"
+                          : folderRow
+                            ? folderRowsMultiline
+                              ? "folder-multiline"
+                              : "folder"
+                            : isCard
+                              ? "card"
+                              : "slim";
+                        const rawForkParentKey = forkParentKeyByKey.get(threadKey) ?? null;
+                        const parentShell =
+                          rawForkParentKey !== null
+                            ? (allThreadByKey.get(rawForkParentKey) ?? null)
+                            : null;
+                        const forksHiddenDot =
+                          forkEntry !== undefined &&
+                          forkEntry.forksCollapsed &&
+                          forkEntry.hiddenForks.length > 0
+                            ? resolveSidebarFolderDot(
+                                forkEntry.hiddenForks.map((hidden) => ({
+                                  ...hidden,
+                                  lastVisitedAt: resolveThreadLastVisitedAt(
+                                    hidden.lastVisitedAt,
+                                    localLastVisitedAtById[threadShellKey(hidden)],
+                                  ),
+                                })),
+                              )
+                            : null;
                         return (
                           <SortableThreadRow
                             key={threadKey}
@@ -3589,14 +3781,31 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             }
                             thread={thread}
                             variant={rowVariant}
+                            forkDepth={forkEntry?.depth ?? 0}
+                            forkRail1Continues={forkEntry?.rail1Continues ?? false}
+                            forkRail2Continues={forkEntry?.rail2Continues ?? false}
+                            forkCount={forkEntry?.forkCount ?? 0}
+                            forksCollapsed={forkEntry?.forksCollapsed ?? false}
+                            forksHiddenDot={forksHiddenDot}
+                            forkParentBranch={forkEntry?.parentBranch ?? null}
+                            forkParentTitle={parentShell?.title ?? null}
+                            orphanForkParentThreadId={
+                              !isForkRow && parentShell !== null && parentShell.deletedAt === null
+                                ? parentShell.id
+                                : null
+                            }
+                            forkMultiline={folderRowsMultiline}
+                            onToggleForks={handleToggleForks}
                             navigationParent={
-                              folderRow ??
-                              (section === "quick" ||
-                              section === "working" ||
-                              section === "snoozed" ||
-                              section === "settled"
-                                ? `shelf:${section}`
-                                : undefined)
+                              isForkRow
+                                ? (forkEntry.parentKey ?? folderRow)
+                                : (folderRow ??
+                                  (section === "quick" ||
+                                  section === "working" ||
+                                  section === "snoozed" ||
+                                  section === "settled"
+                                    ? `shelf:${section}`
+                                    : undefined))
                             }
                             variantAction={
                               section === "snoozed"
