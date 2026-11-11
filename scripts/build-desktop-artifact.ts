@@ -966,6 +966,7 @@ interface StagePackageJson {
   readonly version: string;
   readonly buildVersion: string;
   readonly t3codeCommitHash: string;
+  readonly t3codeMacAdHocSigned?: boolean;
   readonly t3codeWebAuthn?: MacWebAuthnEntitlements;
   readonly private: true;
   readonly packageManager: string;
@@ -1085,6 +1086,11 @@ export const bundlesWslRuntime = (input: {
   readonly platform: typeof BuildPlatform.Type;
   readonly runtimeArchivePath: string | undefined;
 }): boolean => input.platform === "win" && input.runtimeArchivePath !== undefined;
+
+export const resolveStageMacAdHocSigned = (
+  platform: typeof BuildPlatform.Type,
+  signed: boolean,
+): boolean => platform === "mac" && !signed;
 
 export const WSL_RUNTIME_EXTRA_RESOURCES = [
   WSL_RUNTIME_ARCHIVE_EXTRA_RESOURCE,
@@ -2812,12 +2818,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   // Missing publish config infers a GitHub feed from tokens; staging has no repository, so manifest generation would crash.
   buildConfig.publish = null;
   if (!isDesktopPreviewVersion(version)) {
-    // Fork: Squirrel.Mac installs an update only when its signature satisfies
-    // the running app's designated requirement, which an ad hoc build's cdhash
-    // never does, so an unsigned macOS build ships without an update feed
-    // rather than one that downloads updates it cannot install.
-    const publishConfig =
-      platform === "mac" && !signed ? undefined : yield* resolveGitHubPublishConfig(updateChannel);
+    const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
     if (publishConfig) {
       buildConfig.publish = [publishConfig];
     } else if (mockUpdates) {
@@ -3883,6 +3884,11 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     version: appVersion,
     buildVersion: appVersion,
     t3codeCommitHash: commitHash,
+    // Fork: read by apps/desktop/src/electron/MacZipUpdater.ts so ad hoc macOS builds bypass
+    // Squirrel.Mac's designated-requirement check and install updates from the release .zip.
+    ...(resolveStageMacAdHocSigned(options.platform, options.signed)
+      ? { t3codeMacAdHocSigned: true }
+      : {}),
     // Read by apps/desktop/src/preview/Passkeys.ts; must match the signed entitlements.
     ...(macWebAuthn ? { t3codeWebAuthn: macWebAuthn } : {}),
     private: true,

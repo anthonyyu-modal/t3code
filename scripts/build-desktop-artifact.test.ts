@@ -39,6 +39,7 @@ import {
   preflightWindowsDesktopBuild,
   renderMacPasskeyEntitlements,
   resolveMacFileExclusions,
+  resolveStageMacAdHocSigned,
   resolveMacWebAuthnEntitlements,
   resolveMacPasskeySigningConfiguration,
   resolveMergedStageDependencies,
@@ -517,7 +518,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
         undefined,
       );
-      // Squirrel.Mac cannot install an ad hoc signed update.
+      // Fork: ad hoc macOS builds publish the same GitHub feed and install from the .zip archive.
       const unsignedNightly = yield* createBuildConfig(
         "mac",
         "dmg",
@@ -540,7 +541,15 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.isNull(preview.publish);
       assert.isNull(previewChannel.publish);
-      assert.isNull(unsignedNightly.publish);
+      assert.deepStrictEqual(unsignedNightly.publish, [
+        {
+          provider: "github",
+          owner: "pingdotgg",
+          repo: "t3code",
+          releaseType: "prerelease",
+          channel: "nightly",
+        },
+      ]);
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
@@ -1683,6 +1692,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       const signedMac = signed.mac as Record<string, unknown>;
       assert.notProperty(signedMac, "identity");
       assert.notProperty(signedMac, "hardenedRuntime");
+      assert.isTrue(resolveStageMacAdHocSigned("mac", false));
+      assert.isFalse(resolveStageMacAdHocSigned("mac", true));
+      assert.isFalse(resolveStageMacAdHocSigned("linux", false));
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 

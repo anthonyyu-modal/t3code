@@ -32,6 +32,7 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
 import * as DesktopState from "../app/DesktopState.ts";
 import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
+import { isReadOnlyOrTranslocatedMacPath } from "../electron/MacZipUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as IpcChannels from "../ipc/channels.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -334,6 +335,7 @@ function getAutoUpdateDisabledReason(args: {
   isDevelopment: boolean;
   isPackaged: boolean;
   platform: NodeJS.Platform;
+  appPath?: string | undefined;
   appImage?: string | undefined;
   isDebPackage: boolean;
   disabledByEnv: boolean;
@@ -350,6 +352,13 @@ function getAutoUpdateDisabledReason(args: {
   }
   if (args.disabledByEnv) {
     return "Automatic updates are disabled by the T3CODE_DISABLE_AUTO_UPDATE setting.";
+  }
+  if (
+    args.platform === "darwin" &&
+    args.appPath !== undefined &&
+    isReadOnlyOrTranslocatedMacPath(args.appPath)
+  ) {
+    return "Move T3 Code to Applications to enable automatic updates.";
   }
   if (args.platform === "linux" && !args.appImage && !args.isDebPackage) {
     return "Automatic updates on Linux require the AppImage or the .deb package.";
@@ -467,6 +476,7 @@ export const make = Effect.gen(function* () {
         isDevelopment: environment.isDevelopment,
         isPackaged: environment.isPackaged,
         platform: environment.platform,
+        appPath: environment.appPath,
         appImage: Option.getOrUndefined(config.appImagePath),
         isDebPackage,
         disabledByEnv: config.disableAutoUpdate,

@@ -1075,4 +1075,54 @@ describe("DesktopUpdates under a managed policy", () => {
       }),
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
+
+  it.effect("disables automatic updates when running from a mounted DMG or AppTranslocation", () =>
+    Effect.gen(function* () {
+      for (const appPath of [
+        "/Volumes/T3 Code (Nightly) Installer/T3 Code (Nightly).app/Contents/Resources/app.asar",
+        "/private/var/folders/ab/cd/T/AppTranslocation/1234/d/T3 Code (Nightly).app/Contents/Resources/app.asar",
+      ]) {
+        const state = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const updates = yield* DesktopUpdates.DesktopUpdates;
+            yield* updates.configure;
+            return yield* updates.getState;
+          }),
+        ).pipe(Effect.provide(makeHarness({ platform: "darwin", appPath }).layer));
+
+        assert.equal(state.status, "disabled");
+        assert.equal(state.message, "Move T3 Code to Applications to enable automatic updates.");
+      }
+    }),
+  );
+
+  it.effect("surfaces detailed MacZipUpdater install errors on failed quitAndInstall", () => {
+    const harness = makeHarness({
+      quitAndInstall: Effect.fail(
+        new ElectronUpdater.ElectronUpdaterQuitAndInstallError({
+          channel: "nightly",
+          isSilent: true,
+          isForceRunAfter: true,
+          detail: "Downloaded update failed macOS code signature verification.",
+          cause: new Error("codesign exited 1"),
+        }),
+      ),
+    });
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        harness.emit("update-downloaded", { version: "1.2.4" });
+        yield* flushCallbacks;
+
+        const result = yield* updates.install;
+        assert.equal(result.state.errorContext, "install");
+        assert.equal(
+          result.state.message,
+          "Downloaded update failed macOS code signature verification.",
+        );
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
 });

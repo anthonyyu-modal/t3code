@@ -4,10 +4,9 @@
 # runtimes here, so they install these archives instead of the official ones.
 #
 # Versions are on the nightly train, so the app is "T3 Code (Nightly)" with
-# nightly behavior. Builds are unsigned (ad hoc), and build-desktop-artifact.ts
-# gives unsigned macOS builds no update feed: Squirrel.Mac could not install an
-# ad hoc update, since it checks the new build's signature against the running
-# app's. Update by running this workflow and installing the new .dmg.
+# nightly behavior. Builds are unsigned (ad hoc); MacZipUpdater installs updates
+# directly from the release's .zip archive instead of Squirrel.Mac, which checks
+# the new build's signature against the running app's.
 #
 # The official release.yml also deploys web, relay, npm, and AUR with
 # maintainer secrets; it stays disabled here (`gh workflow disable`).
@@ -192,7 +191,7 @@ jobs:
           cat > release-notes.md <<'EOF'
           Fork build of [`${{ needs.preflight.outputs.ref }}`](https://github.com/${{ github.repository }}/commit/${{ needs.preflight.outputs.ref }}): upstream T3 Code plus this fork's patches ([compare](https://github.com/pingdotgg/t3code/compare/main...${{ github.repository_owner }}:t3code:${{ needs.preflight.outputs.ref }})).
 
-          Unsigned (ad hoc) and without an update feed. Install the .dmg; if macOS says the app is damaged, run `xattr -dr com.apple.quarantine "/Applications/T3 Code (Nightly).app"`.
+          Unsigned (ad hoc) build with in-app `.zip` updates on macOS. For a first install from a browser download, install the `.dmg` and, if macOS says the app is damaged, run `xattr -dr com.apple.quarantine "/Applications/T3 Code (Nightly).app"`; subsequent updates install in-app without quarantine.
           EOF
 
       - name: Publish release
@@ -206,7 +205,10 @@ jobs:
           make_latest: true
           files: |
             release-assets/*.dmg
+            release-assets/*.dmg.blockmap
             release-assets/*.zip
+            release-assets/*.zip.blockmap
+            release-assets/*-mac.yml
             release-assets/*.tar.gz
             release-assets/SHA256SUMS
           fail_on_unmatched_files: true
