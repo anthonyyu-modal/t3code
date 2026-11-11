@@ -8,7 +8,7 @@ Upstream T3 Code plus a small patch stack, released from this repository.
 - **Remote install errors say why.** The SSH runner reports `t3 --version` output and `uname` when a downloaded binary does not run.
 - **SSH tunnels ignore failing `LocalForward`s** from `~/.ssh/config` (no `ExitOnForwardFailure`).
 - **Archives come from this fork.** `CLI_RELEASE_REPOSITORY` in `packages/shared/src/cliRelease.ts` points here, so SSH remotes and runtimes install this fork's patched archives.
-- **Unsigned macOS builds are ad hoc signed and have no update feed** (`scripts/build-desktop-artifact.ts`): macOS refuses notifications from an app whose bundle is not signed, and Squirrel.Mac cannot install an ad hoc signed update.
+- **Unsigned macOS builds are ad hoc signed and self-update in-app from the release `.zip`** (`scripts/build-desktop-artifact.ts`, `apps/desktop/src/electron/MacZipUpdater.ts`): macOS refuses notifications from an app whose bundle is not signed, and Squirrel.Mac cannot install an ad hoc signed update because its designated requirement pins the running binary's `cdhash`. Unsigned macOS builds publish `nightly-mac.yml` and replace `/Applications/T3 Code (Nightly).app` directly from the verified `.zip` archive via `ditto --noqtn` without setting `com.apple.quarantine`.
 - **Settings → General → Test notification** posts a notification on demand: macOS lists an app in System Settings → Notifications only after it posts one.
 - **In-app alerts can also send a system notification** (Settings → General → System notifications for in-app alerts, off by default, kept on this device), so an alert stays clickable in Notification Center after its in-app toast disappears.
 - **Settings rows this fork adds carry a Fork badge** (`forkSetting` in `apps/web/src/components/settings/forkSetting.tsx`); searching settings for "fork" lists them.
@@ -28,15 +28,15 @@ Upstream T3 Code plus a small patch stack, released from this repository.
 gh workflow run fork-release.yml -R anthonyyu-modal/t3code
 ```
 
-Builds are nightly versions (`T3 Code (Nightly)`, Orchestrator V2, nightly-only settings) but unsigned (ad hoc), so the app never offers updates: rerun the workflow and reinstall to update.
+Builds are nightly versions (`T3 Code (Nightly)`, Orchestrator V2, nightly-only settings) and ad hoc signed. Once installed in `/Applications`, the desktop app checks this repository's releases and installs newer builds in-app from the `.zip` archive without quarantine prompts.
 
-## Install (macOS)
+## Install (macOS, first time)
 
 ```bash
 gh release download -R anthonyyu-modal/t3code -p '*arm64.dmg' -D /tmp/t3-fork --clobber
 ```
 
-Open the .dmg and drag the app to Applications. It installs as `T3 Code (Nightly).app`, replacing the official Nightly, and uses the same `~/.t3` data. If macOS refuses to open it (unverified developer, or "damaged"): `xattr -dr com.apple.quarantine "/Applications/T3 Code (Nightly).app"`.
+Open the .dmg and drag the app to Applications. It installs as `T3 Code (Nightly).app`, replacing the official Nightly, and uses the same `~/.t3` data. If you downloaded the `.dmg` in a browser and macOS refuses to open it (unverified developer, or "damaged"): `xattr -dr com.apple.quarantine "/Applications/T3 Code (Nightly).app"`. Subsequent updates install in-app.
 
 ## Sync with upstream
 
