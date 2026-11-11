@@ -653,6 +653,14 @@ export function useThreadActions() {
     );
     clearTerminalUiState(threadRef);
     clearDeletedThreadPanelState(threadRef);
+    if (thread.lineage?.sideChat === true && thread.lineage.parentThreadId !== null) {
+      useRightPanelStore
+        .getState()
+        .closeSurface(
+          scopeThreadRef(threadRef.environmentId, thread.lineage.parentThreadId),
+          `side-chat:${threadRef.threadId}`,
+        );
+    }
 
     if (shouldNavigateToFallback && !navigatedDuringDelete) {
       const fallbackThread = fallbackThreadId
