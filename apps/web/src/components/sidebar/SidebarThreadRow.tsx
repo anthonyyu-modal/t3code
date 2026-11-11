@@ -54,6 +54,7 @@ import {
   GitBranchIcon,
   GitForkIcon,
   MessageCircleQuestionIcon,
+  MessagesSquareIcon,
   PinIcon,
   PinOffIcon,
   ShieldQuestionIcon,
@@ -262,6 +263,7 @@ function SidebarThreadTooltip({
   project,
   projectDisplayName,
   forkParentTitle,
+  isSideChat,
   environmentLabel,
   environmentMachine,
   providerEntry,
@@ -277,6 +279,7 @@ function SidebarThreadTooltip({
   project: ProjectFaviconProject | null;
   projectDisplayName: string | null;
   forkParentTitle?: string | null | undefined;
+  isSideChat?: boolean | undefined;
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
   providerEntry: SidebarProviderEntry | null;
@@ -319,8 +322,15 @@ function SidebarThreadTooltip({
         ) : null}
         {forkParentTitle ? (
           <div className="flex min-w-0 items-center gap-2">
-            <GitForkIcon className="size-3 shrink-0 stroke-muted-foreground" />
-            <div className="min-w-0 truncate text-foreground/75">Forked from {forkParentTitle}</div>
+            {isSideChat ? (
+              <MessagesSquareIcon className="size-3 shrink-0 stroke-muted-foreground" />
+            ) : (
+              <GitForkIcon className="size-3 shrink-0 stroke-muted-foreground" />
+            )}
+            <div className="min-w-0 truncate text-foreground/75">
+              {/* oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md) */}
+              {isSideChat ? "Side chat of" : "Forked from"} {forkParentTitle}
+            </div>
           </div>
         ) : null}
         {environmentLabel ? (
@@ -609,6 +619,7 @@ type SidebarThreadRowProps = {
   forkRail1Continues?: boolean | undefined;
   forkRail2Continues?: boolean | undefined;
   forkCount?: number | undefined;
+  sideChatCount?: number | undefined;
   forksCollapsed?: boolean | undefined;
   forksHiddenDot?: "attention" | "failed" | "unread" | "working" | null | undefined;
   forkParentBranch?: string | null | undefined;
@@ -901,12 +912,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     ? getTriggerDisplayModelName(selectedModel, providerEntry?.driverKind)
     : thread.modelSelection.model;
 
+  const isSideChat = thread.lineage.sideChat === true;
   const detailsTooltip = (
     <SidebarThreadTooltip
       thread={checkoutThread}
       project={props.project}
       projectDisplayName={props.projectDisplayName}
       forkParentTitle={props.forkParentTitle}
+      isSideChat={isSideChat}
       environmentLabel={props.environmentLabel}
       environmentMachine={props.environmentMachine}
       providerEntry={providerEntry}
@@ -1344,9 +1357,21 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   ) : null;
 
   const forkCount = props.forkCount ?? 0;
+  const sideChatCount = props.sideChatCount ?? 0;
+  const sideChatOnly = forkCount > 0 && sideChatCount === forkCount;
+  const mixedBranches = sideChatCount > 0 && sideChatCount < forkCount;
   const forksCollapsed = props.forksCollapsed === true;
   const onToggleForks = props.onToggleForks;
-  const forkToggleLabel = `${forksCollapsed ? "Expand" : "Collapse"} ${forkCount} ${forkCount === 1 ? "fork" : "forks"}`;
+  const toggleNoun = sideChatOnly
+    ? forkCount === 1
+      ? "side chat"
+      : "side chats"
+    : mixedBranches
+      ? "branches"
+      : forkCount === 1
+        ? "fork"
+        : "forks";
+  const forkToggleLabel = `${forksCollapsed ? "Expand" : "Collapse"} ${forkCount} ${toggleNoun}`;
   const forkTogglePill =
     forkCount > 0 && onToggleForks !== undefined && !sortable?.isDragging ? (
       <Tooltip>
@@ -1371,7 +1396,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             />
           }
         >
-          <GitForkIcon aria-hidden className="size-2.5 shrink-0" />
+          {sideChatOnly ? (
+            <MessagesSquareIcon aria-hidden className="size-2.5 shrink-0" />
+          ) : (
+            <GitForkIcon aria-hidden className="size-2.5 shrink-0" />
+          )}
           <span>{forkCount}</span>
           {forksCollapsed && props.forksHiddenDot ? (
             <span
@@ -1513,6 +1542,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             >
               {hasUnsentDraft ? (
                 draftIndicator
+              ) : isSideChat ? (
+                <MessagesSquareIcon
+                  aria-hidden
+                  className="size-3 shrink-0 text-sidebar-muted-foreground/75"
+                />
               ) : (
                 <GitForkIcon
                   aria-hidden
