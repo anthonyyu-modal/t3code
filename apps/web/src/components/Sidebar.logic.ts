@@ -31,6 +31,7 @@ import {
 import {
   getThreadSortTimestamp,
   planPinnedReorder,
+  sortActiveThreadsByOrderKey,
   sortThreads,
   toSortableTimestamp,
   type ThreadSortInput,
@@ -213,7 +214,13 @@ export function sidebarMarkerId(marker: SidebarListMarker): string {
 }
 
 export type SidebarListItem =
-  | { readonly kind: "thread"; readonly key: string; readonly section: SidebarSection }
+  | {
+      readonly kind: "thread";
+      readonly key: string;
+      readonly section: SidebarSection;
+      readonly rootKey?: string | undefined;
+      readonly parentKey?: string | undefined;
+    }
   | { readonly kind: "marker"; readonly marker: SidebarListMarker };
 
 export function sidebarListItemId(item: SidebarListItem): string {
@@ -247,11 +254,63 @@ export function resolveSidebarDropTarget(
 ): SidebarDropTarget | null {
   const activeIndex = items.findIndex((item) => sidebarListItemId(item) === activeKey);
   const overIndex = items.findIndex((item) => sidebarListItemId(item) === overId);
-  if (activeIndex === -1 || overIndex === -1 || items[activeIndex]?.kind !== "thread") return null;
-  const moved = items.filter((_, index) => index !== activeIndex);
-  moved.splice(overIndex, 0, items[activeIndex]!);
-  const section = sectionAtSidebarSlot(moved, overIndex);
+  const activeItem = items[activeIndex];
+  const overItem = items[overIndex];
+  if (activeIndex === -1 || overIndex === -1 || activeItem?.kind !== "thread" || !overItem) {
+    return null;
+  }
+  const draggingDown = activeIndex < overIndex;
+  const isNestedFork = activeItem.parentKey !== undefined;
+  let moved: SidebarListItem[];
+  let insertIndex: number;
+  if (activeIndex === overIndex) {
+    moved = [...items];
+    insertIndex = activeIndex;
+  } else {
+    moved = items.filter(
+      (item, index) =>
+        index !== activeIndex &&
+        (isNestedFork || item.kind !== "thread" || item.rootKey !== activeKey),
+    );
+    if (overItem.kind === "marker") {
+      const markerIndex = moved.indexOf(overItem);
+      if (markerIndex === -1) return null;
+      insertIndex = draggingDown ? markerIndex + 1 : markerIndex;
+    } else {
+      const overRoot = isNestedFork ? overItem.key : (overItem.rootKey ?? overItem.key);
+      if (draggingDown) {
+        let lastIndex = -1;
+        for (const [index, candidate] of moved.entries()) {
+          if (
+            candidate.kind === "thread" &&
+            (candidate.key === overRoot || (!isNestedFork && candidate.rootKey === overRoot))
+          ) {
+            lastIndex = index;
+          }
+        }
+        if (lastIndex === -1) return null;
+        insertIndex = lastIndex + 1;
+      } else {
+        const firstIndex = moved.findIndex(
+          (candidate) =>
+            candidate.kind === "thread" &&
+            (candidate.key === overRoot || (!isNestedFork && candidate.rootKey === overRoot)),
+        );
+        if (firstIndex === -1) return null;
+        insertIndex = firstIndex;
+      }
+    }
+    moved.splice(insertIndex, 0, {
+      kind: "thread",
+      key: activeItem.key,
+      section: activeItem.section,
+    });
+  }
+  const section = sectionAtSidebarSlot(moved, insertIndex);
   if (section === "quick" || section === "working" || section === "snoozed") return null;
+  // Nested forks stay anchored under their parent within a section; they only drag to Pinned or Settled.
+  if (isNestedFork && section !== "pinned" && section !== "settled") return null;
+  if (isNestedFork && section === activeItem.section) return null;
   const pinnedOrder: string[] = [];
   const activeOrder: string[] = [];
   let currentSection: SidebarSection = "pinned";
@@ -265,6 +324,8 @@ export function resolveSidebarDropTarget(
         item.marker === "settled-header"
       )
         break;
+    } else if (item.parentKey !== undefined) {
+      continue;
     } else if (currentSection === "pinned") pinnedOrder.push(item.key);
     else activeOrder.push(item.key);
   }
@@ -584,6 +645,366 @@ export async function deleteSelectedThreadEntries<
 
 export function isSidebarHiddenThread(thread: Pick<SidebarThreadSummary, "lineage">): boolean {
   return !isListedThreadLineage(thread.lineage);
+}
+
+type SidebarForkLineageInput = Pick<
+  SidebarThreadSummary,
+  "id" | "environmentId" | "lineage" | "forkedFrom"
+>;
+
+function resolveSidebarForkParentKey(
+  thread: SidebarForkLineageInput,
+  threadsByKey: ReadonlyMap<string, SidebarForkLineageInput>,
+): string | null {
+  if (thread.lineage.relationshipToParent !== "fork") return null;
+  const selfKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+  const rawParentId =
+    thread.forkedFrom?.type === "run" ? thread.forkedFrom.threadId : thread.lineage.parentThreadId;
+  if (rawParentId === null) return null;
+  const visited = new Set<string>([selfKey]);
+  let candidateKey = scopedThreadKey(scopeThreadRef(thread.environmentId, rawParentId));
+  while (!visited.has(candidateKey)) {
+    visited.add(candidateKey);
+    const candidate = threadsByKey.get(candidateKey);
+    if (candidate === undefined) {
+      return candidateKey;
+    }
+    if (!isSidebarHiddenThread(candidate)) {
+      return candidateKey;
+    }
+    if (candidate.lineage.parentThreadId === null) return null;
+    candidateKey = scopedThreadKey(
+      scopeThreadRef(candidate.environmentId, candidate.lineage.parentThreadId),
+    );
+  }
+  return null;
+}
+
+export function buildSidebarForkParentKeyMap<T extends SidebarForkLineageInput>(
+  threads: readonly T[],
+): Map<string, string | null> {
+  const threadsByKey = new Map(
+    threads.map((thread) => [
+      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      thread,
+    ]),
+  );
+  const parentKeyByKey = new Map<string, string | null>();
+  for (const [key, thread] of threadsByKey) {
+    parentKeyByKey.set(key, resolveSidebarForkParentKey(thread, threadsByKey));
+  }
+  return parentKeyByKey;
+}
+
+/** Keeps an inbox fork family in Quick only while every live member in the inbox is quick. */
+export function resolveSidebarQuickForkFamilyKeys<
+  T extends Pick<SidebarThreadSummary, "id" | "environmentId" | "userAuthoredMessageCount">,
+>(
+  inboxThreads: readonly T[],
+  forkParentKeyByKey: ReadonlyMap<string, string | null>,
+  maxMessages: number | null,
+): Set<string> {
+  const quickKeys = new Set<string>();
+  if (maxMessages === null || inboxThreads.length === 0) return quickKeys;
+  const inboxByKey = new Map(
+    inboxThreads.map((thread) => [
+      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      thread,
+    ]),
+  );
+  const neighbors = new Map<string, string[]>();
+  const link = (a: string, b: string) => {
+    const list = neighbors.get(a);
+    if (list) list.push(b);
+    else neighbors.set(a, [b]);
+  };
+  for (const key of inboxByKey.keys()) {
+    const parentKey = forkParentKeyByKey.get(key) ?? null;
+    if (parentKey !== null && inboxByKey.has(parentKey)) {
+      link(key, parentKey);
+      link(parentKey, key);
+    }
+  }
+  const visited = new Set<string>();
+  for (const [startKey, startThread] of inboxByKey) {
+    if (visited.has(startKey)) continue;
+    const componentKeys = [startKey];
+    visited.add(startKey);
+    let allQuick = isQuickSidebarThread(startThread, maxMessages);
+    for (let i = 0; i < componentKeys.length; i += 1) {
+      for (const nextKey of neighbors.get(componentKeys[i]!) ?? []) {
+        if (visited.has(nextKey)) continue;
+        visited.add(nextKey);
+        componentKeys.push(nextKey);
+        if (allQuick && !isQuickSidebarThread(inboxByKey.get(nextKey)!, maxMessages)) {
+          allQuick = false;
+        }
+      }
+    }
+    if (allQuick) {
+      for (const key of componentKeys) quickKeys.add(key);
+    }
+  }
+  return quickKeys;
+}
+
+export interface SidebarForkTreeEntry<T> {
+  readonly thread: T;
+  readonly key: string;
+  readonly rootKey: string;
+  readonly parentKey: string | null;
+  readonly parentBranch: string | null;
+  readonly depth: 0 | 1 | 2;
+  readonly forkCount: number;
+  readonly forksCollapsed: boolean;
+  readonly hiddenForks: readonly T[];
+  readonly rail1Continues: boolean;
+  readonly rail2Continues: boolean;
+}
+
+function hasCycleWithinSet(
+  startKey: string,
+  parentKey: string,
+  forkParentKeyByKey: ReadonlyMap<string, string | null>,
+  inSet: ReadonlySet<string>,
+): boolean {
+  const seen = new Set<string>([startKey]);
+  let cursor: string | null = parentKey;
+  while (cursor !== null && inSet.has(cursor)) {
+    if (seen.has(cursor)) return true;
+    seen.add(cursor);
+    cursor = forkParentKeyByKey.get(cursor) ?? null;
+  }
+  return false;
+}
+
+export function buildSidebarForkTree<
+  T extends Pick<SidebarThreadSummary, "id" | "environmentId" | "branch">,
+>(input: {
+  readonly threads: readonly T[];
+  readonly forkParentKeyByKey: ReadonlyMap<string, string | null>;
+  readonly collapsedParentKeys: ReadonlySet<string>;
+  readonly revealKey: string | null;
+  readonly rootOrder?: readonly string[] | undefined;
+}): SidebarForkTreeEntry<T>[] {
+  if (input.threads.length === 0) return [];
+  const keyOf = (thread: T) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+  const threadByKey = new Map<string, T>();
+  const rankByKey = new Map<string, number>();
+  for (const [index, thread] of input.threads.entries()) {
+    const key = keyOf(thread);
+    if (!threadByKey.has(key)) {
+      threadByKey.set(key, thread);
+      rankByKey.set(key, index);
+    }
+  }
+  const inList = new Set(threadByKey.keys());
+  const validParentByKey = new Map<string, string | null>();
+  const childrenByParent = new Map<string, T[]>();
+  const roots: T[] = [];
+  for (const [key, thread] of threadByKey) {
+    const candidateParent = input.forkParentKeyByKey.get(key) ?? null;
+    const parentKey =
+      candidateParent !== null &&
+      candidateParent !== key &&
+      inList.has(candidateParent) &&
+      !hasCycleWithinSet(key, candidateParent, input.forkParentKeyByKey, inList)
+        ? candidateParent
+        : null;
+    validParentByKey.set(key, parentKey);
+    if (parentKey === null) {
+      roots.push(thread);
+    } else {
+      const siblings = childrenByParent.get(parentKey);
+      if (siblings) siblings.push(thread);
+      else childrenByParent.set(parentKey, [thread]);
+    }
+  }
+
+  const descendantsByKey = new Map<string, T[]>();
+  const getDescendants = (key: string): T[] => {
+    const cached = descendantsByKey.get(key);
+    if (cached !== undefined) return cached;
+    const all: T[] = [];
+    for (const child of childrenByParent.get(key) ?? []) {
+      const childKey = keyOf(child);
+      all.push(child, ...getDescendants(childKey));
+    }
+    descendantsByKey.set(key, all);
+    return all;
+  };
+
+  let orderedRoots: T[];
+  if (input.rootOrder !== undefined) {
+    orderedRoots = orderItemsByPreferredIds({
+      items: roots,
+      preferredIds: input.rootOrder,
+      getId: keyOf,
+    });
+  } else {
+    const minFamilyRank = new Map<string, number>();
+    for (const root of roots) {
+      const rootKey = keyOf(root);
+      let best = rankByKey.get(rootKey) ?? Number.POSITIVE_INFINITY;
+      for (const descendant of getDescendants(rootKey)) {
+        const rank = rankByKey.get(keyOf(descendant)) ?? Number.POSITIVE_INFINITY;
+        if (rank < best) best = rank;
+      }
+      minFamilyRank.set(rootKey, best);
+    }
+    orderedRoots = [...roots].sort(
+      (left, right) => minFamilyRank.get(keyOf(left))! - minFamilyRank.get(keyOf(right))!,
+    );
+  }
+
+  const revealPathKeys = new Set<string>();
+  if (input.revealKey !== null && inList.has(input.revealKey)) {
+    let cursor: string | null = input.revealKey;
+    while (cursor !== null && inList.has(cursor) && !revealPathKeys.has(cursor)) {
+      revealPathKeys.add(cursor);
+      cursor = validParentByKey.get(cursor) ?? null;
+    }
+  }
+
+  type MutableEntry = {
+    thread: T;
+    key: string;
+    rootKey: string;
+    parentKey: string | null;
+    parentBranch: string | null;
+    depth: 0 | 1 | 2;
+    forkCount: number;
+    forksCollapsed: boolean;
+    hiddenForks: readonly T[];
+    rail1Continues: boolean;
+    rail2Continues: boolean;
+  };
+  const entries: MutableEntry[] = [];
+  const collectHidden = (key: string, hidden: T[]) => {
+    for (const child of childrenByParent.get(key) ?? []) {
+      const childKey = keyOf(child);
+      if (revealPathKeys.has(childKey)) {
+        continue;
+      }
+      hidden.push(child, ...getDescendants(childKey));
+    }
+  };
+  const visit = (
+    thread: T,
+    rootKey: string,
+    parentKey: string | null,
+    parentBranch: string | null,
+    rawDepth: number,
+  ) => {
+    const key = keyOf(thread);
+    const children = childrenByParent.get(key) ?? [];
+    const descendants = getDescendants(key);
+    const collapsed = children.length > 0 && input.collapsedParentKeys.has(key);
+    const hiddenForks: T[] = [];
+    if (collapsed) collectHidden(key, hiddenForks);
+    const depth: 0 | 1 | 2 = rawDepth === 0 ? 0 : rawDepth === 1 ? 1 : 2;
+    entries.push({
+      thread,
+      key,
+      rootKey,
+      parentKey,
+      parentBranch,
+      depth,
+      forkCount: descendants.length,
+      forksCollapsed: collapsed,
+      hiddenForks,
+      rail1Continues: false,
+      rail2Continues: false,
+    });
+    for (const child of children) {
+      if (collapsed && !revealPathKeys.has(keyOf(child))) continue;
+      visit(child, rootKey, key, thread.branch, rawDepth + 1);
+    }
+  };
+  for (const root of orderedRoots) {
+    visit(root, keyOf(root), null, null, 0);
+  }
+
+  let openDepth1 = false;
+  let openDepth2 = false;
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i]!;
+    if (entry.depth === 0) {
+      openDepth1 = false;
+      openDepth2 = false;
+    } else if (entry.depth === 1) {
+      entry.rail1Continues = openDepth1;
+      entry.rail2Continues = false;
+      openDepth1 = true;
+      openDepth2 = false;
+    } else {
+      entry.rail1Continues = openDepth1;
+      entry.rail2Continues = openDepth2;
+      openDepth2 = true;
+    }
+  }
+
+  return entries;
+}
+
+export function sortActiveRootsWithForkFamilies<
+  T extends {
+    readonly id: ThreadId;
+    readonly environmentId: EnvironmentId;
+    readonly createdAt: string;
+    readonly unsettledAt?: string | null | undefined;
+    readonly activeOrderKey?: string | null | undefined;
+  },
+>(threads: readonly T[], forkParentKeyByKey: ReadonlyMap<string, string | null>): string[] {
+  const keyOf = (thread: T) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+  const threadByKey = new Map(threads.map((thread) => [keyOf(thread), thread]));
+  const inList = new Set(threadByKey.keys());
+  const childrenByParent = new Map<string, T[]>();
+  const roots: T[] = [];
+  for (const [key, thread] of threadByKey) {
+    const candidateParent = forkParentKeyByKey.get(key) ?? null;
+    const parentKey =
+      candidateParent !== null &&
+      candidateParent !== key &&
+      inList.has(candidateParent) &&
+      !hasCycleWithinSet(key, candidateParent, forkParentKeyByKey, inList)
+        ? candidateParent
+        : null;
+    if (parentKey === null) roots.push(thread);
+    else {
+      const list = childrenByParent.get(parentKey);
+      if (list) list.push(thread);
+      else childrenByParent.set(parentKey, [thread]);
+    }
+  }
+  const anchorMs = (thread: T) =>
+    Math.max(
+      toSortableTimestamp(thread.createdAt) ?? 0,
+      toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
+    );
+  const maxFamilyAnchorMs = (key: string): number => {
+    const current = threadByKey.get(key);
+    let best = current ? anchorMs(current) : 0;
+    for (const child of childrenByParent.get(key) ?? []) {
+      best = Math.max(best, maxFamilyAnchorMs(keyOf(child)));
+    }
+    return best;
+  };
+  const syntheticRoots = roots.map((root) => {
+    const key = keyOf(root);
+    if (root.activeOrderKey != null) return { root, key };
+    const familyMs = maxFamilyAnchorMs(key);
+    return {
+      root:
+        familyMs > anchorMs(root)
+          ? { ...root, unsettledAt: new Date(familyMs).toISOString() }
+          : root,
+      key,
+    };
+  });
+  return sortActiveThreadsByOrderKey(syntheticRoots.map(({ root }) => root)).map((root) =>
+    keyOf(root),
+  );
 }
 
 // Subagent and side-chat threads have no sidebar row, so an open one is represented by
@@ -1011,7 +1432,6 @@ export function firstValidTimestampMs(
   return 0;
 }
 
-export { sortActiveThreadsByOrderKey as sortThreadsForSidebar } from "@t3tools/client-runtime/state/thread-sort";
 export {
   sortInboxThreadsByReturn,
   sortWorkingThreadsBySend,

@@ -30,6 +30,7 @@ import {
   type EnvironmentId,
   type EnvironmentMachineKind,
   type ScopedThreadRef,
+  type ThreadId,
 } from "@t3tools/contracts";
 
 import type { TimestampFormat } from "@t3tools/contracts/settings";
@@ -38,12 +39,14 @@ import {
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
   CheckIcon,
+  ChevronDownIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   CircleDotDashedIcon,
   ClockIcon,
   GitBranchIcon,
+  GitForkIcon,
   MessageCircleQuestionIcon,
   PinIcon,
   PinOffIcon,
@@ -233,6 +236,7 @@ function SidebarThreadTooltip({
   thread,
   project,
   projectDisplayName,
+  forkParentTitle,
   environmentLabel,
   environmentMachine,
   providerEntry,
@@ -247,6 +251,7 @@ function SidebarThreadTooltip({
   thread: SidebarThreadSummary;
   project: ProjectFaviconProject | null;
   projectDisplayName: string | null;
+  forkParentTitle?: string | null | undefined;
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
   providerEntry: SidebarProviderEntry | null;
@@ -282,6 +287,12 @@ function SidebarThreadTooltip({
           <div className="flex min-w-0 items-center gap-2">
             {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
             <div className="min-w-0 truncate text-foreground/75">{projectDisplayName}</div>
+          </div>
+        ) : null}
+        {forkParentTitle ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <GitForkIcon className="size-3 shrink-0 stroke-muted-foreground" />
+            <div className="min-w-0 truncate text-foreground/75">Forked from {forkParentTitle}</div>
           </div>
         ) : null}
         {environmentLabel ? (
@@ -534,11 +545,30 @@ function TopStatusIcon(props: { icon: keyof typeof TOP_STATUS_ICONS; className: 
   return <Icon aria-hidden className={cn("shrink-0", props.className)} />;
 }
 
+const FORK_DOT_CLASS_NAME = {
+  attention: "bg-warning",
+  failed: "bg-error",
+  unread: "bg-success",
+  working: "bg-info",
+} as const;
+
 type SidebarThreadRowProps = {
   thread: SidebarThreadSummary;
   // "folder" is a one-line row inside a boring sidebar project folder;
   // "folder-multiline" adds the card's branch and PR line under it.
-  variant: "card" | "slim" | "folder" | "folder-multiline";
+  // "fork" and "folder-fork" render compact indented tree sub-rows beneath their parent.
+  variant: "card" | "slim" | "folder" | "folder-multiline" | "fork" | "folder-fork";
+  forkDepth?: 0 | 1 | 2 | undefined;
+  forkRail1Continues?: boolean | undefined;
+  forkRail2Continues?: boolean | undefined;
+  forkCount?: number | undefined;
+  forksCollapsed?: boolean | undefined;
+  forksHiddenDot?: "attention" | "failed" | "unread" | "working" | null | undefined;
+  forkParentBranch?: string | null | undefined;
+  forkParentTitle?: string | null | undefined;
+  orphanForkParentThreadId?: ThreadId | null | undefined;
+  forkMultiline?: boolean | undefined;
+  onToggleForks?: ((threadKey: string) => void) | undefined;
   navigationParent?: string | undefined;
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
@@ -820,6 +850,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       thread={thread}
       project={props.project}
       projectDisplayName={props.projectDisplayName}
+      forkParentTitle={props.forkParentTitle}
       environmentLabel={props.environmentLabel}
       environmentMachine={props.environmentMachine}
       providerEntry={providerEntry}
@@ -1202,6 +1233,335 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     </span>
   ) : null;
 
+  const forkCount = props.forkCount ?? 0;
+  const forksCollapsed = props.forksCollapsed === true;
+  const onToggleForks = props.onToggleForks;
+  const forkToggleLabel = `${forksCollapsed ? "Expand" : "Collapse"} ${forkCount} ${forkCount === 1 ? "fork" : "forks"}`;
+  const forkTogglePill =
+    forkCount > 0 && onToggleForks !== undefined && !sortable?.isDragging ? (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              data-sidebar-branch-toggle
+              data-sidebar-action-for={threadKey}
+              aria-expanded={!forksCollapsed}
+              aria-label={forkToggleLabel}
+              onPointerDown={(event) => {
+                if (event.isPrimary && event.button === 0) event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleForks(threadKey);
+              }}
+              onDoubleClick={(event) => event.stopPropagation()}
+              className="inline-flex h-4 shrink-0 cursor-pointer items-center gap-0.5 rounded-full border border-sidebar-border/80 bg-sidebar-row-hover/60 px-1.5 text-2xs font-medium text-sidebar-muted-foreground tabular-nums outline-none transition-colors hover:border-sidebar-border hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            />
+          }
+        >
+          <GitForkIcon aria-hidden className="size-2.5 shrink-0" />
+          <span>{forkCount}</span>
+          {forksCollapsed && props.forksHiddenDot ? (
+            <span
+              aria-hidden
+              className={cn(
+                "ml-0.5 size-1.5 shrink-0 rounded-full",
+                FORK_DOT_CLASS_NAME[props.forksHiddenDot],
+              )}
+            />
+          ) : null}
+          <ChevronDownIcon
+            aria-hidden
+            className={cn("size-2.5 shrink-0 transition-transform", forksCollapsed && "-rotate-90")}
+          />
+        </TooltipTrigger>
+        <TooltipPopup side="top">{forkToggleLabel}</TooltipPopup>
+      </Tooltip>
+    ) : null;
+
+  const orphanParentId = props.orphanForkParentThreadId ?? null;
+  const orphanParentTitle =
+    (props.forkDepth ?? 0) === 0 && variant !== "slim" ? (props.forkParentTitle ?? null) : null;
+  const orphanForkBadge =
+    orphanParentTitle !== null ? (
+      orphanParentId !== null ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                data-sidebar-action-for={threadKey}
+                aria-label={`Open parent thread: ${orphanParentTitle}`}
+                onPointerDown={(event) => {
+                  if (event.isPrimary && event.button === 0) event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onThreadActivate(scopeThreadRef(thread.environmentId, orphanParentId));
+                }}
+                onDoubleClick={(event) => event.stopPropagation()}
+                className="inline-flex max-w-36 min-w-0 shrink cursor-pointer items-center gap-1 rounded-sm border border-sidebar-border/70 bg-sidebar-row-hover/50 px-1.5 py-px text-2xs text-sidebar-muted-foreground outline-none transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              />
+            }
+          >
+            <GitForkIcon aria-hidden className="size-2.5 shrink-0" />
+            <span className="truncate">{orphanParentTitle}</span>
+          </TooltipTrigger>
+          <TooltipPopup side="top">Parent: {orphanParentTitle}</TooltipPopup>
+        </Tooltip>
+      ) : (
+        <span className="inline-flex max-w-36 min-w-0 shrink items-center gap-1 rounded-sm border border-sidebar-border/70 bg-sidebar-row-hover/50 px-1.5 py-px text-2xs text-sidebar-muted-foreground">
+          <GitForkIcon aria-hidden className="size-2.5 shrink-0" />
+          <span className="truncate">{orphanParentTitle}</span>
+        </span>
+      )
+    ) : null;
+
+  if (variant === "fork" || variant === "folder-fork") {
+    const forkInFolder = variant === "folder-fork";
+    const forkDepth = props.forkDepth === 2 ? 2 : 1;
+    const hasDistinctForkBranch =
+      thread.branch !== null && thread.branch !== (props.forkParentBranch ?? null);
+    const showForkMetaLine =
+      (!forkInFolder || props.forkMultiline === true) &&
+      (hasDistinctForkBranch || prBadge !== null);
+    const workingStartedAt =
+      status === "preparing" || status === "working" ? resolveWorkingStartedAt(thread) : null;
+    const hasValidWorkingDuration =
+      workingStartedAt !== null && !Number.isNaN(Date.parse(workingStartedAt));
+    return (
+      <li
+        data-thread-item={threadKey}
+        {...sortableRootProps}
+        {...(fileDropHandlers ?? {})}
+        className={cn(
+          "relative flex list-none items-stretch [content-visibility:auto] [contain-intrinsic-size:auto_--spacing(7)]",
+          showForkMetaLine && "[contain-intrinsic-size:auto_--spacing(11.5)]",
+          sortable?.isDragging && "z-20",
+        )}
+      >
+        <span aria-hidden className={cn("relative w-3 shrink-0", forkInFolder ? "ml-7" : "ml-3.5")}>
+          {forkDepth === 1 ? (
+            <>
+              <span
+                className={cn(
+                  "absolute left-0 w-[1.5px] bg-sidebar-muted-foreground/30",
+                  props.forkRail1Continues ? "-top-1 -bottom-1" : "-top-1 h-4.5 rounded-bl-xs",
+                )}
+              />
+              <span className="absolute top-3.5 left-0 h-[1.5px] w-2.5 rounded-r-xs bg-sidebar-muted-foreground/30" />
+            </>
+          ) : props.forkRail1Continues ? (
+            <span className="absolute -top-1 -bottom-1 left-0 w-[1.5px] bg-sidebar-muted-foreground/30" />
+          ) : null}
+        </span>
+        {forkDepth === 2 ? (
+          <span aria-hidden className="relative w-3 shrink-0">
+            <span
+              className={cn(
+                "absolute left-0 w-[1.5px] bg-sidebar-muted-foreground/30",
+                props.forkRail2Continues ? "-top-1 -bottom-1" : "-top-1 h-4.5 rounded-bl-xs",
+              )}
+            />
+            <span className="absolute top-3.5 left-0 h-[1.5px] w-2.5 rounded-r-xs bg-sidebar-muted-foreground/30" />
+          </span>
+        ) : null}
+        <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
+          <TooltipTrigger
+            render={
+              <div
+                ref={rowRef}
+                role="button"
+                tabIndex={0}
+                data-sidebar-row={threadKey}
+                data-sidebar-parent={props.navigationParent}
+                aria-label={accessibility.label}
+                aria-current={accessibility.current}
+                data-testid="sidebar-row-fork"
+                aria-busy={isRegeneratingTitle || undefined}
+                className={cn(
+                  rowSurfaceClassName,
+                  "min-w-0 flex-1",
+                  showForkMetaLine
+                    ? "flex flex-col justify-center px-2 py-1"
+                    : "flex h-7 items-center gap-1.5 px-2",
+                )}
+                onClick={handleClick}
+                onDoubleClick={handleDoubleClick}
+                onKeyDown={handleKeyDown}
+                onContextMenu={handleContextMenu}
+              />
+            }
+          >
+            <div
+              className={showForkMetaLine ? "flex h-5 min-w-0 items-center gap-1.5" : "contents"}
+            >
+              {accessibleTitle}
+              {hasUnsentDraft ? (
+                draftIndicator
+              ) : (
+                <GitForkIcon
+                  aria-hidden
+                  className="size-3 shrink-0 text-sidebar-muted-foreground/75"
+                />
+              )}
+              {title}
+              {forkTogglePill}
+              {pinIndicator}
+              {terminalStatusIcon}
+              {isRegeneratingTitle ? (
+                <span role="status" className="sr-only">
+                  Regenerating title
+                </span>
+              ) : null}
+              {sortable?.isDragging ? (
+                dragDestination
+              ) : (
+                <span
+                  className={cn(
+                    "group/sidebar-status-slot relative ml-auto flex h-5 min-w-7 shrink-0 items-stretch justify-end text-xs",
+                    props.sweepAction !== null && "hidden",
+                    jumpHintLabel && JUMP_HINT_SLOT_CLASS_NAME,
+                  )}
+                >
+                  <span
+                    className={cn(
+                      isWokeStatus
+                        ? "pointer-events-auto"
+                        : "pointer-events-none group-has-[:focus-visible]/sidebar-status-slot:absolute group-has-[:focus-visible]/sidebar-status-slot:right-0 group-has-[:focus-visible]/sidebar-status-slot:opacity-0 group-any-hover/sidebar-row:absolute group-any-hover/sidebar-row:right-0 group-any-hover/sidebar-row:opacity-0",
+                      "flex items-center self-center justify-self-end tabular-nums text-secondary-label",
+                      snoozeMenuOpen && "pointer-events-none absolute right-0 opacity-0",
+                    )}
+                  >
+                    {topStatus ? (
+                      isWokeStatus ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                aria-label="Dismiss Woke notification"
+                                onClick={handleAcknowledgeWokeClick}
+                                className={cn(
+                                  "inline-flex cursor-pointer items-center gap-1 rounded-sm font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                                  topStatus.className,
+                                )}
+                              >
+                                <AlarmClockIcon aria-hidden className="size-3 shrink-0" />
+                                <span role="status">{topStatus.label}</span>
+                              </button>
+                            }
+                          />
+                          <TooltipPopup side="top">Dismiss Woke notification</TooltipPopup>
+                        </Tooltip>
+                      ) : (
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1 font-medium",
+                            topStatus.className,
+                          )}
+                        >
+                          <TopStatusIcon icon={topStatus.icon} className="size-3" />
+                          {status === "preparing" || status === "working" ? (
+                            hasValidWorkingDuration ? (
+                              <span aria-hidden>
+                                <WorkingDuration startedAt={workingStartedAt} />
+                              </span>
+                            ) : (
+                              topStatus.label
+                            )
+                          ) : (
+                            topStatus.label
+                          )}
+                        </span>
+                      )
+                    ) : (
+                      <RelativeTimeLabel timestamp={resolveThreadActivityTimestamp(thread)} />
+                    )}
+                  </span>
+                  {props.settlementSupported || showSnoozeButton || hasUnsentDraft ? (
+                    <span
+                      className={cn(
+                        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:static group-any-hover/sidebar-row:opacity-100",
+                        snoozeMenuOpen && "pointer-events-auto static opacity-100",
+                      )}
+                    >
+                      {hasUnsentDraft ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                aria-label="Discard draft"
+                                onClick={handleDiscardDraftClick}
+                                className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1 text-xs text-muted-foreground hover:text-foreground"
+                              />
+                            }
+                          >
+                            <XIcon className="size-3" />
+                          </TooltipTrigger>
+                          <TooltipPopup side="top">Discard draft</TooltipPopup>
+                        </Tooltip>
+                      ) : null}
+                      {showSnoozeButton ? (
+                        <SnoozeMenuButton
+                          open={snoozeMenuOpen}
+                          onOpenChange={setSnoozeMenuOpen}
+                          onSnooze={handleSnoozePreset}
+                          timestampFormat={props.timestampFormat}
+                          environmentId={thread.environmentId}
+                        />
+                      ) : null}
+                      {props.settlementSupported ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                aria-label="Settle thread"
+                                onClick={handleSettleClick}
+                                onPointerDown={handleActionPointerDown}
+                                className="-mr-1 inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                              />
+                            }
+                          >
+                            <CheckIcon className="size-3" />
+                          </TooltipTrigger>
+                          <TooltipPopup side="top">Settle thread</TooltipPopup>
+                        </Tooltip>
+                      ) : null}
+                    </span>
+                  ) : null}
+                  {jumpHintLabel ? <JumpHintBadge label={jumpHintLabel} /> : null}
+                </span>
+              )}
+              {props.sweepAction !== null ? dragDestination : null}
+            </div>
+            {showForkMetaLine ? (
+              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 pl-4.5 text-2xs text-secondary-label">
+                {hasDistinctForkBranch && thread.branch ? (
+                  <>
+                    <ThreadWorktreeIndicator thread={thread} />
+                    <span className="flex min-w-0 flex-1">
+                      <MiddleTruncate value={thread.branch} showTitle={false} />
+                    </span>
+                  </>
+                ) : (
+                  <span className="flex-1" />
+                )}
+                {prBadge}
+              </div>
+            ) : null}
+          </TooltipTrigger>
+          {detailsTooltip}
+        </Tooltip>
+      </li>
+    );
+  }
+
   if (variant !== "card") {
     const multiline = variant === "folder-multiline";
     const inFolder = variant === "folder" || multiline;
@@ -1262,6 +1622,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               )}
               {draftIndicator}
               {title}
+              {orphanForkBadge}
+              {forkTogglePill}
               {multiline ? titleLineIcons : null}
               {pinIndicator}
               {multiline ? null : terminalStatusIcon}
@@ -1453,15 +1815,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {/* Left of the status slot, the pin would slide when hover swaps the
                 label for the wider row controls. */}
               {pinIndicator}
-              {props.projectDisplayName ? (
-                <span
-                  className={cn("min-w-0 flex-1 truncate font-normal text-secondary-label text-xs")}
-                >
-                  {props.projectDisplayName}
-                </span>
-              ) : (
-                <span className="flex-1" />
-              )}
+              {orphanForkBadge ??
+                (props.projectDisplayName ? (
+                  <span className="min-w-0 shrink truncate font-normal text-secondary-label text-xs">
+                    {props.projectDisplayName}
+                  </span>
+                ) : null)}
+              {forkTogglePill}
+              <span className="flex-1" />
               {sortable?.isDragging ? (
                 dragDestination
               ) : (

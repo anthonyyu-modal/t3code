@@ -137,9 +137,10 @@ export function createSidebarSortingStrategy(input: {
         }
         continue;
       }
-      if (isCardSection(item.section)) cardHeight ??= rects[index]?.height;
-      else slimHeight ??= rects[index]?.height;
-      if (item.key !== active.key) groups[item.section].push(item);
+      if (isCardSection(item.section) && item.parentKey === undefined)
+        cardHeight ??= rects[index]?.height;
+      else if (!isCardSection(item.section)) slimHeight ??= rects[index]?.height;
+      if (item.key !== active.key && item.rootKey !== active.key) groups[item.section].push(item);
     }
     const scale =
       slimHeight !== undefined ? slimHeight / 36 : (headerScale ?? (cardHeight ?? 82) / 82);
@@ -156,9 +157,14 @@ export function createSidebarSortingStrategy(input: {
     const ranks = new Map(order.map((key, index) => [key, index]));
     const rank = ranks.get(active.key) ?? Number.POSITIVE_INFINITY;
     const index = group.findIndex(
-      (item) => (ranks.get(item.key) ?? Number.POSITIVE_INFINITY) > rank,
+      (item) =>
+        item.parentKey === undefined && (ranks.get(item.key) ?? Number.POSITIVE_INFINITY) > rank,
     );
-    group.splice(index < 0 ? group.length : index, 0, { ...active, section: target.section });
+    group.splice(index < 0 ? group.length : index, 0, {
+      kind: "thread",
+      key: active.key,
+      section: target.section,
+    });
     const settledOrder = (
       input.settledOrder.length > 0 ? input.settledOrder : groups.settled.map((item) => item.key)
     ).filter((key) => key !== active.key || target.section === "settled");

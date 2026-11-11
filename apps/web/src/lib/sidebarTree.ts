@@ -122,20 +122,26 @@ export function installSidebarTree(root: HTMLElement) {
       case "End":
         target = rows.at(-1);
         break;
-      case "ArrowRight":
+      case "ArrowRight": {
+        const branchToggle = row.querySelector<HTMLElement>("[data-sidebar-branch-toggle]");
         if (row.getAttribute("aria-expanded") === "false") row.click();
+        else if (branchToggle?.getAttribute("aria-expanded") === "false") branchToggle.click();
         else
           target = rows.find(
             (candidate) => candidate.dataset.sidebarParent === row.dataset.sidebarRow,
           );
         break;
-      case "ArrowLeft":
+      }
+      case "ArrowLeft": {
+        const branchToggle = row.querySelector<HTMLElement>("[data-sidebar-branch-toggle]");
         if (row.getAttribute("aria-expanded") === "true") row.click();
+        else if (branchToggle?.getAttribute("aria-expanded") === "true") branchToggle.click();
         else
           target = rows.find(
             (candidate) => candidate.dataset.sidebarRow === row.dataset.sidebarParent,
           );
         break;
+      }
       // Row handlers own Enter, Space, F2 rename, and the context menu.
       default:
         return;

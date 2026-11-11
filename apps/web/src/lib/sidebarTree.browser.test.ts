@@ -79,6 +79,38 @@ describe("sidebar keyboard navigation", () => {
     expect(group.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("toggles an inner branch toggle on ArrowRight and ArrowLeft without activating the parent row", () => {
+    using tree = setup();
+    const parent = tree.row("parent-thread");
+    const activateParent = vi.fn();
+    parent.addEventListener("click", activateParent);
+    const branchToggle = document.createElement("button");
+    branchToggle.dataset.sidebarBranchToggle = "";
+    branchToggle.dataset.sidebarActionFor = "parent-thread";
+    branchToggle.setAttribute("aria-expanded", "false");
+    branchToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const expanded = branchToggle.getAttribute("aria-expanded") === "true";
+      branchToggle.setAttribute("aria-expanded", String(!expanded));
+      if (expanded) tree.root.querySelector('[data-sidebar-row="fork-thread"]')?.remove();
+      else tree.row("fork-thread", "parent-thread");
+    });
+    parent.append(branchToggle);
+    tree.install();
+    parent.focus();
+    press(parent, "ArrowRight");
+    expect(branchToggle.getAttribute("aria-expanded")).toBe("true");
+    expect(activateParent).not.toHaveBeenCalled();
+    press(parent, "ArrowRight");
+    const fork = document.activeElement as HTMLElement;
+    expect(fork.dataset.sidebarRow).toBe("fork-thread");
+    press(fork, "ArrowLeft");
+    expect(document.activeElement).toBe(parent);
+    press(parent, "ArrowLeft");
+    expect(branchToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(activateParent).not.toHaveBeenCalled();
+  });
+
   it("opens the row menu on Shift+F10 release without moving focus", () => {
     using tree = setup();
     tree.row("first");

@@ -7,10 +7,13 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
   shouldCreateNewThreadInCurrentProject,
+  buildSidebarForkParentKeyMap,
+  buildSidebarForkTree,
   deleteSelectedThreadEntries,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
   isQuickSidebarThread,
+  resolveSidebarQuickForkFamilyKeys,
   resolveSidebarRowThreadId,
   orderItemsByPreferredIds,
   pinOrderKeyBetween,
@@ -20,6 +23,7 @@ import {
   resolveWorkingStartedAt,
   searchSidebarThreads,
   shouldRecedeSidebarThread,
+  sortActiveRootsWithForkFamilies,
   sortInboxThreadsByReturn,
   resolveSidebarDropTarget,
   planSidebarThreadDrop,
@@ -1684,6 +1688,46 @@ describe("Quick shelf (fork)", () => {
     expect(isQuickSidebarThread({}, 2)).toBe(false);
   });
 
+  it("graduates an entire inbox fork family out of Quick once any live branch exceeds the limit", () => {
+    const environmentId = EnvironmentId.make("env-quick");
+    const rootQuick = makeThreadFixture({
+      id: ThreadId.make("root-quick"),
+      environmentId,
+      userAuthoredMessageCount: 1,
+    });
+    const forkDeep = makeThreadFixture({
+      id: ThreadId.make("fork-deep"),
+      environmentId,
+      userAuthoredMessageCount: 3,
+      lineage: {
+        rootThreadId: rootQuick.id,
+        parentThreadId: rootQuick.id,
+        relationshipToParent: "fork",
+      },
+    });
+    const soloQuick = makeThreadFixture({
+      id: ThreadId.make("solo-quick"),
+      environmentId,
+      userAuthoredMessageCount: 1,
+    });
+    const soloForkQuick = makeThreadFixture({
+      id: ThreadId.make("solo-fork-quick"),
+      environmentId,
+      userAuthoredMessageCount: 2,
+      lineage: {
+        rootThreadId: soloQuick.id,
+        parentThreadId: soloQuick.id,
+        relationshipToParent: "fork",
+      },
+    });
+    const threads = [rootQuick, forkDeep, soloQuick, soloForkQuick];
+    const parentKeys = buildSidebarForkParentKeyMap(threads);
+    expect([...resolveSidebarQuickForkFamilyKeys(threads, parentKeys, 2)]).toEqual([
+      "env-quick:solo-quick",
+      "env-quick:solo-fork-quick",
+    ]);
+  });
+
   describe("dragging", () => {
     const marker = (name: SidebarListMarker): SidebarListItem => ({ kind: "marker", marker: name });
     const row = (key: string, section: SidebarSection): SidebarListItem => ({
@@ -1734,5 +1778,151 @@ describe("Quick shelf (fork)", () => {
       expect(planFor("a2")).toEqual({ kind: "none" });
       expect(resolveSidebarDropVerb("quick", "active")).toBeNull();
     });
+  });
+});
+
+describe("Forked thread tree (fork)", () => {
+  const environmentId = EnvironmentId.make("env-forks");
+  const forkOf = (id: string, parentId: ThreadId, overrides: ThreadFixtureOverrides = {}): Thread =>
+    makeThreadFixture({
+      id: ThreadId.make(id),
+      environmentId,
+      lineage: {
+        rootThreadId: parentId,
+        parentThreadId: parentId,
+        relationshipToParent: "fork",
+      },
+      ...overrides,
+    });
+
+  it("nests forks beneath their parent, caps visual depth at 2, and computes tree rail continuations", () => {
+    const root = makeThreadFixture({
+      id: ThreadId.make("root"),
+      environmentId,
+      branch: "feat/base",
+    });
+    const subagent = makeThreadFixture({
+      id: ThreadId.make("subagent"),
+      environmentId,
+      lineage: {
+        rootThreadId: root.id,
+        parentThreadId: root.id,
+        relationshipToParent: "subagent",
+      },
+    });
+    const b1 = forkOf("b1", subagent.id, { branch: "feat/b1" });
+    const c1 = forkOf("c1", b1.id, { branch: "feat/c1" });
+    const d1 = forkOf("d1", c1.id, { branch: "feat/d1" });
+    const b2 = forkOf("b2", root.id, { branch: "feat/base" });
+    const peer = makeThreadFixture({ id: ThreadId.make("peer"), environmentId });
+
+    const allThreads = [root, subagent, b1, c1, d1, b2, peer];
+    const forkParentKeyByKey = buildSidebarForkParentKeyMap(allThreads);
+    const visible = [root, b1, c1, d1, b2, peer];
+
+    const expanded = buildSidebarForkTree({
+      threads: visible,
+      forkParentKeyByKey,
+      collapsedParentKeys: new Set(),
+      revealKey: null,
+    });
+    expect(
+      expanded.map((entry) => ({
+        id: entry.thread.id,
+        depth: entry.depth,
+        forkCount: entry.forkCount,
+        parentBranch: entry.parentBranch,
+        rails: [entry.rail1Continues, entry.rail2Continues],
+      })),
+    ).toEqual([
+      { id: "root", depth: 0, forkCount: 4, parentBranch: null, rails: [false, false] },
+      { id: "b1", depth: 1, forkCount: 2, parentBranch: "feat/base", rails: [true, false] },
+      { id: "c1", depth: 2, forkCount: 1, parentBranch: "feat/b1", rails: [true, true] },
+      { id: "d1", depth: 2, forkCount: 0, parentBranch: "feat/c1", rails: [true, false] },
+      { id: "b2", depth: 1, forkCount: 0, parentBranch: "feat/base", rails: [false, false] },
+      { id: "peer", depth: 0, forkCount: 0, parentBranch: null, rails: [false, false] },
+    ]);
+
+    const collapsedKey = scopedThreadKey(scopeThreadRef(environmentId, root.id));
+    const revealD1Key = scopedThreadKey(scopeThreadRef(environmentId, d1.id));
+    const collapsedWithRevealedLeaf = buildSidebarForkTree({
+      threads: visible,
+      forkParentKeyByKey,
+      collapsedParentKeys: new Set([collapsedKey]),
+      revealKey: revealD1Key,
+    });
+    expect(collapsedWithRevealedLeaf.map((entry) => entry.thread.id)).toEqual([
+      "root",
+      "b1",
+      "c1",
+      "d1",
+      "peer",
+    ]);
+    expect(collapsedWithRevealedLeaf[0]?.forksCollapsed).toBe(true);
+    expect(collapsedWithRevealedLeaf[0]?.hiddenForks.map((t) => t.id)).toEqual(["b2"]);
+  });
+
+  it("bubbles keyless active roots when a fork is newer while preserving manual activeOrderKey roots", () => {
+    const olderRoot = makeThreadFixture({
+      id: ThreadId.make("older-root"),
+      environmentId,
+      createdAt: "2026-03-09T10:00:00.000Z",
+    });
+    const newerStandalone = makeThreadFixture({
+      id: ThreadId.make("newer-standalone"),
+      environmentId,
+      createdAt: "2026-03-09T11:00:00.000Z",
+    });
+    const freshFork = forkOf("fresh-fork", olderRoot.id, {
+      createdAt: "2026-03-09T12:00:00.000Z",
+    });
+    const manualRoot = makeThreadFixture({
+      id: ThreadId.make("manual-root"),
+      environmentId,
+      createdAt: "2026-03-09T09:00:00.000Z",
+      activeOrderKey: "m",
+    });
+    const manualFork = forkOf("manual-fork", manualRoot.id, {
+      createdAt: "2026-03-09T13:00:00.000Z",
+    });
+    const threads = [olderRoot, newerStandalone, freshFork, manualRoot, manualFork];
+    const forkParentKeyByKey = buildSidebarForkParentKeyMap(threads);
+    expect(sortActiveRootsWithForkFamilies(threads, forkParentKeyByKey)).toEqual([
+      "env-forks:older-root",
+      "env-forks:newer-standalone",
+      "env-forks:manual-root",
+    ]);
+  });
+
+  it("steps root drags across whole fork families and restricts nested fork drops to Pinned or Settled", () => {
+    const items: readonly SidebarListItem[] = [
+      { kind: "marker", marker: "pinned-header" },
+      { kind: "thread", key: "p1", section: "pinned" },
+      { kind: "marker", marker: "pinned-divider" },
+      { kind: "thread", key: "a1", section: "active" },
+      { kind: "thread", key: "a1-f1", section: "active", rootKey: "a1", parentKey: "a1" },
+      { kind: "thread", key: "a1-f2", section: "active", rootKey: "a1", parentKey: "a1" },
+      { kind: "thread", key: "a2", section: "active" },
+      { kind: "marker", marker: "settled-header" },
+      { kind: "thread", key: "s1", section: "settled" },
+    ];
+
+    expect(resolveSidebarDropTarget(items, "a1", "a2")).toEqual({
+      section: "active",
+      pinnedOrder: ["p1"],
+      activeOrder: ["a2", "a1"],
+    });
+    expect(resolveSidebarDropTarget(items, "a2", "a1-f1")).toEqual({
+      section: "active",
+      pinnedOrder: ["p1"],
+      activeOrder: ["a2", "a1"],
+    });
+    expect(resolveSidebarDropTarget(items, "a1-f1", "a2")).toBeNull();
+    expect(resolveSidebarDropTarget(items, "a1-f1", "p1")).toEqual({
+      section: "pinned",
+      pinnedOrder: ["a1-f1", "p1"],
+      activeOrder: ["a1", "a2"],
+    });
+    expect(resolveSidebarDropTarget(items, "a1-f1", "s1")?.section).toBe("settled");
   });
 });
