@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useRenderedAppearance } from "../../hooks/useTheme";
 import { openBoardSession, type BoardSession } from "./boardSession";
+import { useRightDragPan } from "./useRightDragPan";
 
 /**
  * This thread's whiteboard: an Excalidraw board the user and the agent both draw on. The server
@@ -19,6 +20,7 @@ export default function WhiteboardPanel({ threadRef }: { readonly threadRef: Sco
   const [board, setBoard] = useState<ExcalidrawImperativeAPI | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
   const session = useRef<BoardSession | null>(null);
+  const rightDragPan = useRightDragPan(board);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- follows the server's copy of the board while the tab is mounted, and sends what is unsaved when it closes
   useEffect(() => {
@@ -36,7 +38,15 @@ export default function WhiteboardPanel({ threadRef }: { readonly threadRef: Sco
   }, [board, environmentId, threadId]);
 
   return (
-    <div className="relative h-full min-h-0 w-full" data-testid="whiteboard-panel">
+    // The application role keeps typed keys here: the chat view sends typing from anywhere else to
+    // the composer, which would swallow Excalidraw's single-key tool shortcuts.
+    <div
+      role="application"
+      aria-label="Whiteboard"
+      className="relative h-full min-h-0 w-full"
+      data-testid="whiteboard-panel"
+      {...rightDragPan}
+    >
       <Excalidraw
         excalidrawAPI={setBoard}
         theme={appearance}
