@@ -71,7 +71,12 @@ function lockSwipeAxis(
   if (Math.abs(sumX) <= Math.abs(sumY) || isVerticalScroll(Math.abs(sumX), Math.abs(sumY))) {
     return { kind: "ignored" };
   }
-  if (path.some((node) => node instanceof Element && node.matches('[role="dialog"]'))) {
+  // A dialog holds the page behind it still, and an application region (the whiteboard) pans.
+  if (
+    path.some(
+      (node) => node instanceof Element && node.matches('[role="dialog"], [role="application"]'),
+    )
+  ) {
     return { kind: "ignored" };
   }
   if (canScrollHorizontally(path, sumX)) return { kind: "ignored" };
