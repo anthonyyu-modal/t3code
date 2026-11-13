@@ -51,6 +51,7 @@ import {
   Files,
   Globe2,
   MessagesSquare,
+  Shapes,
   Plus,
   TerminalSquare,
   Volume2Icon,
@@ -160,6 +161,8 @@ export interface RightPanelTabsProps {
   onAddDevice: () => void;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
+  /** Absent where there is no thread to keep a whiteboard for. */
+  onAddWhiteboard?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -197,6 +200,7 @@ const SURFACE_DISABLED_REASONS = {
   pullRequests: msg("This thread has no linked items."),
   device: msg("Devices are only available from a thread."),
   sideChat: msg("Side chats start after the first message."),
+  whiteboard: msg("Whiteboards are only available from a thread."),
 } as const;
 
 // Closed keepMounted popups must stop blocking shortcuts once their exit transition ends.
@@ -222,6 +226,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   pullRequests: msg("No linked items available."),
   device: msg("Available from a thread."),
   sideChat: msg("Available after the first message."),
+  whiteboard: msg("Available from a thread."),
 } as const;
 
 type TabContextMenuAction =
@@ -346,6 +351,8 @@ function RightPanelEmptyState(props: {
   onAddDevice: () => void;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
+  /** Absent where there is no thread to keep a whiteboard for. */
+  onAddWhiteboard?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -429,6 +436,21 @@ function RightPanelEmptyState(props: {
             disabledReason:
               props.sideChatDisabledReason ?? messages(SURFACE_UNAVAILABLE_HINTS.sideChat),
             onClick: props.onAddSideChat,
+          },
+        ]
+      : []),
+    ...(props.onAddWhiteboard
+      ? [
+          {
+            // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+            label: "Whiteboard",
+            // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+            description: "Sketch with the agent on a board you both edit.",
+            icon: Shapes,
+            shortcut: "W",
+            available: true,
+            disabledReason: SURFACE_UNAVAILABLE_HINTS.whiteboard,
+            onClick: props.onAddWhiteboard,
           },
         ]
       : []),
@@ -631,6 +653,8 @@ function surfaceTitle(
         surface,
         resolve(msg("Thread on {label}", { label: surface.label })),
       );
+    case "whiteboard":
+      return resolve(msg("Whiteboard"));
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return resolve(msg("Browser"));
@@ -725,6 +749,8 @@ function SurfaceIcon({
       return <SideChatTabIcon environmentId={environmentId} threadId={surface.threadId} />;
     case "linked-thread":
       return <MessagesSquare className="size-3 shrink-0" />;
+    case "whiteboard":
+      return <Shapes className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -1237,6 +1263,19 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           },
         ]
       : []),
+    ...(props.onAddWhiteboard
+      ? [
+          {
+            // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+            label: "Whiteboard",
+            icon: Shapes,
+            shortcut: "W",
+            available: true,
+            disabledReason: SURFACE_DISABLED_REASONS.whiteboard,
+            onClick: props.onAddWhiteboard,
+          },
+        ]
+      : []),
   ] as const;
   const canAddSurface = addSurfaceActions.some((action) => action.available);
 
@@ -1699,6 +1738,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}
             onAddSideChat={props.onAddSideChat}
+            onAddWhiteboard={props.onAddWhiteboard}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}

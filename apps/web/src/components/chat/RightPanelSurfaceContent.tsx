@@ -37,6 +37,7 @@ const DevicePanel = lazy(() =>
   import("../device/DevicePanel").then((module) => ({ default: module.DevicePanel })),
 );
 const FilePreviewPanel = lazy(() => import("../files/FilePreviewPanel"));
+const WhiteboardPanel = lazy(() => import("../whiteboard/WhiteboardPanel"));
 
 type RightPanelTerminalProps = Omit<
   PersistentThreadTerminalPanelProps,
@@ -232,6 +233,12 @@ export function RightPanelSurfaceContent(props: {
       );
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
+    case "whiteboard":
+      return (
+        <Suspense fallback={null}>
+          <WhiteboardPanel key={scopedThreadKey(threadRef)} threadRef={threadRef} />
+        </Suspense>
+      );
     case "thread":
       // Not lazy: revealing a suspended tiptap editor tears down its view and crashes the composer.
       return (
