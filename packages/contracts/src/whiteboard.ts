@@ -24,21 +24,85 @@ export type WhiteboardFiles = typeof WhiteboardFiles.Type;
 export const WhiteboardEditor = Schema.Literals(["user", "agent"]);
 export type WhiteboardEditor = typeof WhiteboardEditor.Type;
 
-export const WhiteboardScene = Schema.Struct({
+/** Names a shared board in the server's whiteboard folder, so it has to be safe as a file name. */
+export const SharedWhiteboardId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9-]{1,64}$/));
+export type SharedWhiteboardId = typeof SharedWhiteboardId.Type;
+
+export const WHITEBOARD_NAME_MAX_LENGTH = 60;
+/** What a thread's own board is called wherever boards are listed. No shared board may take it. */
+export const THREAD_WHITEBOARD_NAME = "This thread";
+
+export const WhiteboardName = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(WHITEBOARD_NAME_MAX_LENGTH),
+);
+export type WhiteboardName = typeof WhiteboardName.Type;
+
+/** One board: a thread's own, or one that every thread on the server can open. */
+export const WhiteboardRef = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("thread"), threadId: ThreadId }),
+  Schema.Struct({ kind: Schema.Literal("shared"), boardId: SharedWhiteboardId }),
+]);
+export type WhiteboardRef = typeof WhiteboardRef.Type;
+
+export const SharedWhiteboard = Schema.Struct({
+  boardId: SharedWhiteboardId,
+  name: WhiteboardName,
+});
+export type SharedWhiteboard = typeof SharedWhiteboard.Type;
+
+/** The server's shared boards, and which board each thread's Whiteboard tab shows. */
+export const WhiteboardDirectory = Schema.Struct({
+  boards: Schema.Array(SharedWhiteboard),
+  /** Threads showing a shared board, by thread id. Every other thread shows its own board. */
+  selected: Schema.Record(Schema.String, SharedWhiteboardId),
+});
+export type WhiteboardDirectory = typeof WhiteboardDirectory.Type;
+
+export const WhiteboardDirectorySubscribeInput = Schema.Struct({});
+export type WhiteboardDirectorySubscribeInput = typeof WhiteboardDirectorySubscribeInput.Type;
+
+export const WhiteboardCreateInput = Schema.Struct({
+  name: WhiteboardName,
+  /** Starts the new board as a copy of this one. */
+  copyOf: Schema.optional(WhiteboardRef),
+  /** Shows the new board in this thread's Whiteboard tab. */
+  threadId: Schema.optional(ThreadId),
+});
+export type WhiteboardCreateInput = typeof WhiteboardCreateInput.Type;
+
+export const WhiteboardRenameInput = Schema.Struct({
+  boardId: SharedWhiteboardId,
+  name: WhiteboardName,
+});
+export type WhiteboardRenameInput = typeof WhiteboardRenameInput.Type;
+
+export const WhiteboardDeleteInput = Schema.Struct({
+  boardId: SharedWhiteboardId,
+});
+export type WhiteboardDeleteInput = typeof WhiteboardDeleteInput.Type;
+
+export const WhiteboardSelectInput = Schema.Struct({
   threadId: ThreadId,
+  /** The shared board the thread's Whiteboard tab should show, or `null` for the thread's own. */
+  boardId: Schema.NullOr(SharedWhiteboardId),
+});
+export type WhiteboardSelectInput = typeof WhiteboardSelectInput.Type;
+
+export const WhiteboardScene = Schema.Struct({
+  board: WhiteboardRef,
   revision: NonNegativeInt,
   elements: Schema.Array(WhiteboardElement),
   files: WhiteboardFiles,
 });
 export type WhiteboardScene = typeof WhiteboardScene.Type;
 
-export const WhiteboardThreadInput = Schema.Struct({
-  threadId: ThreadId,
+export const WhiteboardBoardInput = Schema.Struct({
+  board: WhiteboardRef,
 });
-export type WhiteboardThreadInput = typeof WhiteboardThreadInput.Type;
+export type WhiteboardBoardInput = typeof WhiteboardBoardInput.Type;
 
 export const WhiteboardSaveInput = Schema.Struct({
-  threadId: ThreadId,
+  board: WhiteboardRef,
   /** Names the saving window, so that window can ignore the echo of its own save. */
   clientId: TrimmedNonEmptyString,
   /** The elements this window changed since its last save, deleted ones included. */
@@ -78,7 +142,6 @@ export const WhiteboardStreamEvent = Schema.Union([
 export type WhiteboardStreamEvent = typeof WhiteboardStreamEvent.Type;
 
 export const WhiteboardSnapshotInput = Schema.Struct({
-  threadId: ThreadId,
   requestId: TrimmedNonEmptyString,
   mimeType: Schema.Literal("image/png"),
   data: Schema.String.check(
@@ -93,7 +156,7 @@ export type WhiteboardSnapshotInput = typeof WhiteboardSnapshotInput.Type;
 export const WhiteboardActivitySubscribeInput = Schema.Struct({});
 export type WhiteboardActivitySubscribeInput = typeof WhiteboardActivitySubscribeInput.Type;
 
-/** One per board change, across every thread, so a client can open the tab when an agent draws. */
+/** One each time an agent draws, so a client can open that agent's thread's Whiteboard tab. */
 export const WhiteboardActivityEvent = Schema.Struct({
   threadId: ThreadId,
   revision: NonNegativeInt,
@@ -102,11 +165,27 @@ export const WhiteboardActivityEvent = Schema.Struct({
 export type WhiteboardActivityEvent = typeof WhiteboardActivityEvent.Type;
 
 export class WhiteboardError extends Schema.TaggedError<WhiteboardError>()("WhiteboardError", {
-  threadId: ThreadId,
+  /** The board's file name, which says whose board it is without the caller decoding a ref. */
+  board: Schema.String,
   operation: Schema.Literals(["load", "save"]),
   cause: Schema.optional(Schema.Defect()),
 }) {
   override get message() {
-    return `Could not ${this.operation} the whiteboard for thread ${this.threadId}.`;
+    return `Could not ${this.operation} the whiteboard ${this.board}.`;
+  }
+}
+
+export class WhiteboardBoardRejected extends Schema.TaggedError<WhiteboardBoardRejected>()(
+  "WhiteboardBoardRejected",
+  {
+    reason: Schema.Literals(["name-taken", "not-found"]),
+    /** The name asked for, or the id when the caller named the board by id. */
+    board: Schema.String,
+  },
+) {
+  override get message() {
+    return this.reason === "name-taken"
+      ? `A board named "${this.board}" already exists.`
+      : `There is no shared board "${this.board}".`;
   }
 }
