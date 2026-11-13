@@ -1204,6 +1204,23 @@ export function summarizeT3ToolCalls(
           );
       break;
     }
+    case "whiteboard": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Used the whiteboard {count} time} other {Used the whiteboard {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to use the whiteboard {count} time} other {Tried to use the whiteboard {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "browser": {
       const count = selected.length;
       label = done
