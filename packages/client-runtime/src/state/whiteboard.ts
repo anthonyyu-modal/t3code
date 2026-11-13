@@ -24,6 +24,22 @@ export function createWhiteboardEnvironmentAtoms<R, E>(
       label: "environment-command:whiteboard:submit-snapshot",
       tag: WS_METHODS.whiteboardSubmitSnapshot,
     }),
+    create: createEnvironmentRpcCommand(runtime, {
+      label: "environment-command:whiteboard:create",
+      tag: WS_METHODS.whiteboardCreate,
+    }),
+    rename: createEnvironmentRpcCommand(runtime, {
+      label: "environment-command:whiteboard:rename",
+      tag: WS_METHODS.whiteboardRename,
+    }),
+    remove: createEnvironmentRpcCommand(runtime, {
+      label: "environment-command:whiteboard:delete",
+      tag: WS_METHODS.whiteboardDelete,
+    }),
+    select: createEnvironmentRpcCommand(runtime, {
+      label: "environment-command:whiteboard:select",
+      tag: WS_METHODS.whiteboardSelect,
+    }),
     events: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:whiteboard:events",
       tag: WS_METHODS.subscribeWhiteboard,
@@ -31,6 +47,10 @@ export function createWhiteboardEnvironmentAtoms<R, E>(
       transform: (stream) => stream.pipe(Stream.rechunk(1)),
       // The server counts subscribers to know whether a tab can draw a picture, so leave at once.
       idleTtlMs: 0,
+    }),
+    directory: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:whiteboard:directory",
+      tag: WS_METHODS.subscribeWhiteboardDirectory,
     }),
     activity: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:whiteboard:activity",

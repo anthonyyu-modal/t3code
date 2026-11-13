@@ -19,16 +19,18 @@ const callerBoard = Effect.fn("WhiteboardToolkit.callerBoard")(function* (operat
 });
 
 const handlers = {
-  whiteboard_read: McpToolAccess.readsAsCaller(() =>
+  whiteboard_read: McpToolAccess.readsAsCaller((input) =>
     Effect.gen(function* () {
       const { threadId, whiteboards } = yield* callerBoard("whiteboard_read");
-      return yield* whiteboards.read(threadId).pipe(Effect.mapError(toFailure));
+      return yield* whiteboards.read(threadId, input.board).pipe(Effect.mapError(toFailure));
     }),
   ),
-  whiteboard_edit: McpToolAccess.actsAsCaller((input) =>
+  whiteboard_edit: McpToolAccess.actsAsCaller(({ board, newBoard, ...edit }) =>
     Effect.gen(function* () {
       const { threadId, whiteboards } = yield* callerBoard("whiteboard_edit");
-      const result = yield* whiteboards.edit(threadId, input).pipe(Effect.mapError(toFailure));
+      const result = yield* whiteboards
+        .edit(threadId, { board, newBoard }, edit)
+        .pipe(Effect.mapError(toFailure));
       return {
         ...result,
         message:
@@ -38,12 +40,13 @@ const handlers = {
       };
     }),
   ),
-  whiteboard_view: McpToolAccess.readsAsCaller(() =>
+  whiteboard_view: McpToolAccess.readsAsCaller((input) =>
     Effect.gen(function* () {
       const { threadId, whiteboards } = yield* callerBoard("whiteboard_view");
-      const screenshot = yield* whiteboards.picture(threadId).pipe(Effect.mapError(toFailure));
-      const { revision } = yield* whiteboards.get(threadId).pipe(Effect.mapError(toFailure));
-      return { revision, screenshot };
+      const { board, revision, ...screenshot } = yield* whiteboards
+        .picture(threadId, input.board)
+        .pipe(Effect.mapError(toFailure));
+      return { board, revision, screenshot };
     }),
   ),
 } satisfies McpToolAccess.Handlers<typeof WhiteboardToolkit.tools>;

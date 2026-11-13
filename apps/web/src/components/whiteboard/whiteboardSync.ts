@@ -33,6 +33,19 @@ export function unsavedElements<T extends SyncElement>(
   return elements.filter((element) => synced.get(element.id) !== element.version);
 }
 
+/**
+ * Whether the window still holds every element the server has. Excalidraw keeps a removed
+ * element as a deleted one, so an element that is gone means the whole scene was swapped.
+ */
+export function holdsEverySynced(
+  elements: ReadonlyArray<SyncElement>,
+  synced: SyncedVersions,
+): boolean {
+  let held = 0;
+  for (const element of elements) if (synced.has(element.id)) held += 1;
+  return held >= synced.size;
+}
+
 /** Excalidraw leaves `undefined` properties on elements, which are not JSON and fail to encode. */
 export function toWireElements(elements: ReadonlyArray<SyncElement>): Array<WhiteboardElement> {
   return JSON.parse(JSON.stringify(elements)) as Array<WhiteboardElement>;

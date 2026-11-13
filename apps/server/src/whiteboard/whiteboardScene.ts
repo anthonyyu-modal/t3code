@@ -357,13 +357,37 @@ const listed = (labels: ReadonlyArray<string>) =>
     ? labels.join("; ")
     : `${labels.slice(0, LABEL_LIST_LIMIT).join("; ")}; and ${labels.length - LABEL_LIST_LIMIT} more`;
 
-export function whiteboardChangeNote(changes: WhiteboardChanges, revision: number): string {
+/** `sharedName` is the board's name when every thread can draw on it, `null` for the thread's own. */
+export function whiteboardChangeNote(
+  changes: WhiteboardChanges,
+  revision: number,
+  sharedName: string | null,
+): string {
   return [
-    `The user changed this thread's whiteboard since you last saw it (now revision ${revision}).`,
+    sharedName === null
+      ? `The user changed this thread's whiteboard since you last saw it (now revision ${revision}).`
+      : `The shared whiteboard "${sharedName}", which this thread's Whiteboard tab shows, changed since you last saw it (now revision ${revision}).`,
     ...(changes.added.length > 0 ? [`Added: ${listed(changes.added)}.`] : []),
     ...(changes.changed.length > 0 ? [`Changed: ${listed(changes.changed)}.`] : []),
     ...(changes.removed.length > 0 ? [`Removed: ${listed(changes.removed)}.`] : []),
     "Call whiteboard_read for the whole board, or whiteboard_view for a picture of it.",
+  ].join("\n");
+}
+
+/** Tells an agent that its thread's Whiteboard tab now shows a different board. */
+export function whiteboardSwitchNote(
+  sharedName: string | null,
+  revision: number,
+  elementCount: number,
+): string {
+  const board =
+    sharedName === null
+      ? "this thread's own board"
+      : `the shared board "${sharedName}", which other threads can also draw on`;
+  const holds = elementCount === 0 ? "It is empty." : `It holds ${elementCount} elements.`;
+  return [
+    `The user switched this thread's Whiteboard tab to ${board} (revision ${revision}). ${holds}`,
+    "The whiteboard tools now act on this board. Call whiteboard_read before you draw on it.",
   ].join("\n");
 }
 

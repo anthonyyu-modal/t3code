@@ -3149,11 +3149,16 @@ export const layerWsRpc = (
           vcsStatusBroadcaster.refreshBranchStatus(input).pipe(Effect.asVoid),
         [WS_METHODS.subscribeVcsStatus]: (input) => vcsStatusBroadcaster.streamStatus(input),
         [WS_METHODS.subscribeWorktreeSetup]: (input) => worktreeSetupTracker.stream(input.threadId),
-        [WS_METHODS.whiteboardGet]: (input) => whiteboards.get(input.threadId),
+        [WS_METHODS.whiteboardGet]: (input) => whiteboards.get(input.board),
         [WS_METHODS.whiteboardSave]: (input) => whiteboards.save(input),
         [WS_METHODS.whiteboardSubmitSnapshot]: (input) => whiteboards.submitSnapshot(input),
-        [WS_METHODS.subscribeWhiteboard]: (input) => whiteboards.stream(input.threadId),
+        [WS_METHODS.whiteboardCreate]: (input) => whiteboards.create(input),
+        [WS_METHODS.whiteboardRename]: (input) => whiteboards.rename(input),
+        [WS_METHODS.whiteboardDelete]: (input) => whiteboards.remove(input),
+        [WS_METHODS.whiteboardSelect]: (input) => whiteboards.select(input),
+        [WS_METHODS.subscribeWhiteboard]: (input) => whiteboards.stream(input.board),
         [WS_METHODS.subscribeWhiteboardActivity]: (_input) => whiteboards.activity,
+        [WS_METHODS.subscribeWhiteboardDirectory]: (_input) => whiteboards.directory,
         [WS_METHODS.worktreeSetupCancel]: (input) =>
           worktreeSetupTracker
             .cancel(input.threadId)

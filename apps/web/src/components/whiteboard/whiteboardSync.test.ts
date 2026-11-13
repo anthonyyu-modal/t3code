@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   anyOutsideViewport,
+  holdsEverySynced,
   markSynced,
   toWireElements,
   unsavedElements,
@@ -22,6 +23,21 @@ describe("whiteboardSync", () => {
     expect(unsavedElements([{ id: "a", version: 4 }, elements[1]!], synced)).toEqual([
       { id: "a", version: 4 },
     ]);
+  });
+
+  it("notices a swapped scene by an element that is gone instead of deleted", () => {
+    const synced = new Map([
+      ["a", 1],
+      ["b", 2],
+    ]);
+    const mine = { id: "new", version: 1 };
+    expect(holdsEverySynced([{ id: "a", version: 5 }, mine], synced)).toBe(false);
+    expect(
+      holdsEverySynced(
+        [{ id: "a", version: 5 }, { id: "b", version: 3, isDeleted: true }, mine],
+        synced,
+      ),
+    ).toBe(true);
   });
 
   it("drops the undefined properties Excalidraw leaves on elements, which cannot be encoded", () => {

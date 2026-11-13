@@ -49,16 +49,28 @@ const ElementView = Schema.Struct({
   strokeStyle: Schema.optional(Schema.String),
 });
 
+// Every tool acts on the board the thread's Whiteboard tab shows, unless the agent names another.
+const Board = {
+  board: Schema.optional(
+    Schema.String.annotate({
+      description:
+        "A name from whiteboard_read's boards. Omit for the board this thread's tab shows.",
+    }),
+  ),
+};
+
 const WhiteboardReadTool = Tool.make("whiteboard_read", {
   ...shared,
   failureMode: "return",
   description:
-    "Read this thread's whiteboard, an Excalidraw board in the user's right panel that you both draw on. Returns every element (id, type, box, text, arrow ends) and what the user changed since you last looked. Freehand strokes and images are only listed; whiteboard_view shows them.",
-  parameters: Tool.EmptyParams,
+    "Read the whiteboard, an Excalidraw board in the user's right panel that you both draw on. Returns every element (id, type, box, text, arrow ends) and what changed since you last looked. Freehand strokes and images are only listed; whiteboard_view shows them. boards names this thread's own board and the shared ones every thread can open.",
+  parameters: Schema.Struct(Board),
   success: Schema.Struct({
+    board: Schema.String,
+    boards: Schema.Array(Schema.String),
     revision: Schema.Int,
     elements: Schema.Array(ElementView),
-    userChanges: Schema.NullOr(
+    changes: Schema.NullOr(
       Schema.Struct({
         added: Schema.Array(Schema.String),
         changed: Schema.Array(Schema.String),
@@ -73,13 +85,19 @@ const WhiteboardReadTool = Tool.make("whiteboard_read", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
-// The board belongs to the thread, not the workspace, so read-only sandboxes and plan mode may draw.
+// A board is no part of the workspace, so read-only sandboxes and plan mode may draw.
 const WhiteboardEditTool = Tool.make("whiteboard_edit", {
   ...shared,
   failureMode: "return",
   description:
-    "Draw on this thread's whiteboard. The user sees it at once and their Whiteboard tab opens. One call may clear, remove, update and add, in that order; if any part is invalid nothing changes. Units are canvas pixels with y downward. Leave 80 between shapes, and 220 where a labelled arrow runs between them. Call whiteboard_read first and build around what the user drew.",
+    "Draw on the whiteboard. The user sees it at once: their Whiteboard tab opens and shows the board you drew on. One call may clear, remove, update and add, in that order; if any part is invalid nothing changes. Units are canvas pixels with y downward. Leave 80 between shapes, and 220 where a labelled arrow runs between them. Call whiteboard_read first and build around what is there.",
   parameters: Schema.Struct({
+    ...Board,
+    newBoard: Schema.optional(
+      Schema.String.annotate({
+        description: "Instead of board: start a shared board with this name and draw on it.",
+      }),
+    ),
     clear: Schema.optional(Schema.Boolean.annotate({ description: "Remove everything first." })),
     remove: Schema.optional(Schema.Array(Schema.String).annotate({ description: "Element ids." })),
     update: Schema.optional(
@@ -127,6 +145,7 @@ const WhiteboardEditTool = Tool.make("whiteboard_edit", {
     ),
   }),
   success: Schema.Struct({
+    board: Schema.String,
     revision: Schema.Int,
     addedIds: Schema.Array(Schema.String),
     layoutWarnings: Schema.Array(Schema.String),
@@ -142,9 +161,10 @@ const WhiteboardEditTool = Tool.make("whiteboard_edit", {
 export const WhiteboardViewTool = Tool.make("whiteboard_view", {
   ...shared,
   description:
-    "See this thread's whiteboard as a PNG, as the user sees it, including freehand strokes and pasted images. Needs the user's Whiteboard tab to be open.",
-  parameters: Tool.EmptyParams,
+    "See the whiteboard as a PNG, as the user sees it, including freehand strokes and pasted images. Needs a Whiteboard tab that shows the board to be open.",
+  parameters: Schema.Struct(Board),
   success: Schema.Struct({
+    board: Schema.String,
     revision: Schema.Int,
     screenshot: Schema.Struct({
       mimeType: Schema.Literal("image/png"),

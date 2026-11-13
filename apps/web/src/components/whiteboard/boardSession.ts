@@ -7,7 +7,9 @@ import {
 import type { AppState, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import type {
-  ScopedThreadRef,
+  EnvironmentId,
+  WhiteboardRef,
+  WhiteboardFiles,
   WhiteboardSceneEvent,
   WhiteboardStreamEvent,
 } from "@t3tools/contracts";
@@ -18,6 +20,7 @@ import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { whiteboardEnvironment } from "../../state/whiteboard";
 import {
   anyOutsideViewport,
+  holdsEverySynced,
   markSynced,
   toWireElements,
   unsavedElements,
@@ -55,11 +58,12 @@ async function blobToBase64(blob: Blob): Promise<string> {
  */
 export function openBoardSession(input: {
   readonly board: ExcalidrawImperativeAPI;
-  readonly threadRef: ScopedThreadRef;
+  readonly environmentId: EnvironmentId;
+  /** Which of the server's boards this window draws on. */
+  readonly target: WhiteboardRef;
   readonly onSaveFailed: (failed: boolean) => void;
 }): BoardSession {
-  const { board, onSaveFailed } = input;
-  const { environmentId, threadId } = input.threadRef;
+  const { board, environmentId, target, onSaveFailed } = input;
   const clientId = randomUUID();
   const synced: SyncedVersions = new Map();
   const sentFileIds = new Set<string>();
@@ -109,7 +113,7 @@ export function openBoardSession(input: {
     const result = await runAtomCommand(
       appAtomRegistry,
       whiteboardEnvironment.save,
-      { environmentId, input: { threadId, clientId, elements: sent, files } },
+      { environmentId, input: { board: target, clientId, elements: sent, files } },
       QUIET,
     );
     saving = false;
@@ -132,24 +136,53 @@ export function openBoardSession(input: {
     }, SAVE_DEBOUNCE_MS);
   };
 
-  const loadMissingFiles = async (fileIds: ReadonlyArray<string>) => {
-    const held = board.getFiles();
-    if (fileIds.every((fileId) => fileId in held)) return;
+  const serverScene = async () => {
     const result = await runAtomCommand(
       appAtomRegistry,
       whiteboardEnvironment.get,
-      { environmentId, input: { threadId } },
+      { environmentId, input: { board: target } },
       QUIET,
     );
-    if (result._tag !== "Success") return;
+    return result._tag === "Success" ? result.value : null;
+  };
+
+  const loadMissingFiles = async (fileIds: ReadonlyArray<string>) => {
+    const held = board.getFiles();
+    if (fileIds.every((fileId) => fileId in held)) return;
+    const scene = await serverScene();
+    if (scene === null) return;
+    addFiles(scene.files);
+  };
+
+  const addFiles = (files: WhiteboardFiles) =>
     board.addFiles(
-      Object.entries(result.value.files).map(([id, file]) => ({
+      Object.entries(files).map(([id, file]) => ({
         id,
         mimeType: file.mimeType,
         dataURL: file.dataURL,
         created: file.created ?? Date.now(),
       })) as unknown as Parameters<ExcalidrawImperativeAPI["addFiles"]>[0],
     );
+
+  // Dropping a saved drawing on the board makes Excalidraw swap its scene for the file's. The
+  // server still holds the old shapes, so they come back here and the file's shapes join them.
+  let restoring = false;
+  const restoreDroppedScene = async () => {
+    if (restoring) return;
+    restoring = true;
+    const scene = await serverScene();
+    restoring = false;
+    if (scene === null) return;
+    addFiles(scene.files);
+    const remote = restoreElements(scene.elements as never, null, { repairBindings: true });
+    board.updateScene({
+      elements: reconcileElements(
+        board.getSceneElementsIncludingDeleted(),
+        remote as unknown as RemoteElements,
+        board.getAppState(),
+      ),
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
   };
 
   const applyScene = (event: WhiteboardSceneEvent) => {
@@ -206,7 +239,6 @@ export function openBoardSession(input: {
       {
         environmentId,
         input: {
-          threadId,
           requestId,
           mimeType: "image/png" as const,
           data: await blobToBase64(blob),
@@ -218,7 +250,7 @@ export function openBoardSession(input: {
   };
 
   const unsubscribe = appAtomRegistry.subscribe(
-    whiteboardEnvironment.events({ environmentId, input: { threadId } }),
+    whiteboardEnvironment.events({ environmentId, input: { board: target } }),
     (result) => {
       const event = AsyncResult.getOrElse(result, () => null);
       if (event === null || event === lastEvent) return;
@@ -237,7 +269,9 @@ export function openBoardSession(input: {
         bringIntoView(drawn, state, { always: false, animate: false });
       }
       // Until the first scene arrives, every element would look unsaved.
-      if (loaded && unsavedElements(elements, synced).length > 0) scheduleSave();
+      if (!loaded) return;
+      if (!holdsEverySynced(elements, synced)) void restoreDroppedScene();
+      if (unsavedElements(elements, synced).length > 0) scheduleSave();
     },
     close: () => {
       unsubscribe();
