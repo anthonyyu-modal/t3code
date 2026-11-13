@@ -8,6 +8,7 @@ import { resolveThreadRouteTarget } from "../threadRoutes";
 import { retainThreadFindForRoute } from "../components/chat/threadFindStore";
 import { ThreadLinkPrompt } from "../components/promptLinks/ThreadLinkPrompt";
 import { useShownThreadRouteTarget } from "../hooks/useShownThreadRouteTarget";
+import { LiveWhiteboards } from "../components/whiteboard/liveBoards";
 
 function ChatRouteLayout() {
   // Render both routes here so draft promotion keeps the same ChatView mounted.
@@ -26,6 +27,7 @@ function ChatRouteLayout() {
       )}
       {modalOpen ? <Outlet /> : null}
       <GlobalVoiceInputIndicator hidden={modalOpen} />
+      <LiveWhiteboards />
     </>
   );
 }
