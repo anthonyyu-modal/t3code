@@ -4,6 +4,7 @@ import { resolveShortcutCommand, type ShortcutMatchContext } from "../keybinding
 import { isEditableFocused } from "../lib/editableFocus";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { isWhiteboardKey, isWhiteboardTarget } from "../lib/whiteboardKeys";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { primaryServerKeybindingsAtom } from "../state/server";
@@ -84,12 +85,20 @@ function runScopes(scopes: readonly CommandScope[], event: KeyboardEvent): boole
   return false;
 }
 
+const ranGlobalScopesEarly = new WeakSet<KeyboardEvent>();
+
 function dispatchCaptureKeyDown(event: KeyboardEvent): void {
-  runScopes(captureScopes, event);
+  if (runScopes(captureScopes, event)) return;
+  // Excalidraw cancels chords it has no use for (mod+P), which would hide them from the global
+  // scopes. So a chord from the whiteboard that is not Excalidraw's runs those scopes here.
+  if (!isWhiteboardTarget(event.target) || isWhiteboardKey(event, navigator.platform)) return;
+  ranGlobalScopesEarly.add(event);
+  if (runScopes(globalScopes, event)) event.stopPropagation();
 }
 
 function dispatchKeyDown(event: KeyboardEvent): void {
-  const consumed = runScopes(globalScopes, event) || event.defaultPrevented;
+  const consumed =
+    (!ranGlobalScopesEarly.has(event) && runScopes(globalScopes, event)) || event.defaultPrevented;
   for (const scope of observerScopes.slice()) scope.options.observe?.(event, consumed);
 }
 

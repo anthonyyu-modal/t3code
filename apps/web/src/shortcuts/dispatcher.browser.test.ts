@@ -29,6 +29,19 @@ function press(key: string): KeyboardEvent {
   return event;
 }
 
+function pressMod(key: string, target: EventTarget = window): KeyboardEvent {
+  const mac = /mac/i.test(navigator.platform);
+  const event = new KeyboardEvent("keydown", {
+    key,
+    ctrlKey: !mac,
+    metaKey: mac,
+    cancelable: true,
+    bubbles: true,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
 describe("command dispatcher", () => {
   it("runs the newest scope's handler and nothing below it", () => {
     const global = vi.fn();
@@ -128,6 +141,39 @@ describe("command dispatcher", () => {
 
     expect(command).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("leaves Excalidraw's chords to the whiteboard and runs the rest before it sees them", () => {
+    const diffToggle = vi.fn();
+    const filePicker = vi.fn();
+    const boardKeys: Array<string> = [];
+    using stack = new DisposableStack();
+    stack.defer(
+      registerCommands(
+        { "diff.toggle": diffToggle, "filePicker.toggle": filePicker },
+        {
+          keybindings: () =>
+            bindings([
+              ["d", "diff.toggle"],
+              ["p", "filePicker.toggle"],
+            ]).map((binding) => ({ ...binding, shortcut: { ...binding.shortcut, modKey: true } })),
+        },
+      ),
+    );
+    const board = document.body.appendChild(document.createElement("div"));
+    stack.defer(() => board.remove());
+    board.setAttribute("data-whiteboard-keys", "");
+    board.addEventListener("keydown", (event) => boardKeys.push(event.key));
+
+    pressMod("d", board);
+    pressMod("p", board);
+
+    expect(boardKeys).toEqual(["d"]);
+    expect(diffToggle).not.toHaveBeenCalled();
+    expect(filePicker).toHaveBeenCalledOnce();
+
+    pressMod("d");
+    expect(diffToggle).toHaveBeenCalledOnce();
   });
 
   it("routes a menu action to its newest handler", () => {

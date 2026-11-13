@@ -4,10 +4,10 @@ import { Excalidraw, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 import { useRenderedAppearance } from "../../hooks/useTheme";
-import { openBoardSession, type BoardSession } from "./boardSession";
+import { lastBoardLook, openBoardSession, type BoardSession } from "./boardSession";
 import { useRightDragPan } from "./useRightDragPan";
 
 /**
@@ -22,8 +22,10 @@ export default function WhiteboardPanel({ threadRef }: { readonly threadRef: Sco
   const session = useRef<BoardSession | null>(null);
   const rightDragPan = useRightDragPan(board);
 
+  // A layout effect, because its cleanup has to read the board before Excalidraw empties it: a
+  // parent's layout cleanup runs ahead of a child's unmount, and a passive one runs after it.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- follows the server's copy of the board while the tab is mounted, and sends what is unsaved when it closes
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (board === null) return;
     const opened = openBoardSession({
       board,
@@ -38,17 +40,20 @@ export default function WhiteboardPanel({ threadRef }: { readonly threadRef: Sco
   }, [board, environmentId, threadId]);
 
   return (
-    // The application role keeps typed keys here: the chat view sends typing from anywhere else to
-    // the composer, which would swallow Excalidraw's single-key tool shortcuts.
+    // The application role keeps typed keys and trackpad pans here: the chat view sends typing from
+    // anywhere else to the composer, and treats a sideways swipe as going back. Excalidraw's top
+    // bar outgrows the panel just above its own mobile breakpoint, so the Library label goes first.
     <div
       role="application"
       aria-label="Whiteboard"
-      className="relative h-full min-h-0 w-full"
+      className="@container relative h-full min-h-0 w-full @max-[800px]:[&_.sidebar-trigger\_\_label]:hidden!"
       data-testid="whiteboard-panel"
+      data-whiteboard-keys
       {...rightDragPan}
     >
       <Excalidraw
         excalidrawAPI={setBoard}
+        initialData={{ appState: lastBoardLook(threadRef) }}
         theme={appearance}
         name="whiteboard"
         UIOptions={{
