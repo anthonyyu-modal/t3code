@@ -89,6 +89,7 @@ import { T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH } from "@t3tools/prov
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { PreviewControlsToolkit } from "../../mcp/toolkits/previewControls/tools.ts";
 import { HtmlToolkit } from "../../mcp/toolkits/html/tools.ts";
+import { WhiteboardToolkit } from "../../mcp/toolkits/whiteboard/tools.ts";
 import { EnvironmentToolkit } from "../../mcp/toolkits/environment/tools.ts";
 import { ProjectToolkit } from "../../mcp/toolkits/project/tools.ts";
 import { WorktreeToolkit } from "../../mcp/toolkits/worktree/tools.ts";
@@ -605,6 +606,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       ...Object.values(EnvironmentToolkit.tools),
       ...Object.values(PreviewControlsToolkit.tools),
       ...Object.values(HtmlToolkit.tools),
+      ...Object.values(WhiteboardToolkit.tools),
     ]
       .filter((tool) => Context.get(tool.annotations, Tool.Readonly))
       .map((tool) => `mcp__t3-code__${tool.name}`)
@@ -614,6 +616,27 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       [...ClaudeAdapterV2.CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS].sort(),
       readOnlyToolNames,
     );
+  });
+});
+
+describe("ClaudeAdapterV2 app context", () => {
+  it("puts a server note ahead of the request once per change, and never with a slash command", () => {
+    const sent = new Map<string, string>();
+    const note = [{ key: "whiteboard", text: "The user added a box." }];
+    const newer = [{ key: "whiteboard", text: "The user moved the box." }];
+    const message = ClaudeAdapterV2.makeClaudeUserMessage({ text: "What changed?" });
+    assert.deepEqual(ClaudeAdapterV2.withClaudeAppContext(message, note, sent).message.content, [
+      {
+        type: "text",
+        text: "<external_whiteboard>\nThe user added a box.\n</external_whiteboard>",
+      },
+      { type: "text", text: "What changed?" },
+    ]);
+    assert.strictEqual(ClaudeAdapterV2.withClaudeAppContext(message, note, sent), message);
+
+    const command = ClaudeAdapterV2.makeClaudeUserMessage({ text: "/clear" });
+    assert.strictEqual(ClaudeAdapterV2.withClaudeAppContext(command, newer, sent), command);
+    assert.lengthOf(ClaudeAdapterV2.withClaudeAppContext(message, newer, sent).message.content, 2);
   });
 });
 

@@ -841,6 +841,240 @@
       "name": "iobuffer",
       "license": "MIT",
       "sourceUrl": "https://github.com/image-js/iobuffer"
+    },
+    {
+      "name": "@excalidraw/excalidraw",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/excalidraw/excalidraw",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2020 Excalidraw"]
+      }
+    },
+    {
+      "name": "@radix-ui/primitive",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-arrow",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-collection",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-compose-refs",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-context",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-direction",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-dismissable-layer",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-focus-guards",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-focus-scope",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-id",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-popover",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-popper",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-portal",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-presence",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-primitive",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-roving-focus",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-slot",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-tabs",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-use-callback-ref",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-use-controllable-state",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-use-escape-keydown",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-use-layout-effect",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-use-rect",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/react-use-size",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@radix-ui/rect",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/radix-ui/primitives",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
     }
   ]
 }

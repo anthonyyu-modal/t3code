@@ -32,6 +32,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
@@ -41,6 +42,7 @@ import * as Stream from "effect/Stream";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as McpAppModelContext from "../mcpApps/McpAppModelContext.ts";
 import * as PreviewAgentActivity from "../preview/PreviewAgentActivity.ts";
+import * as Whiteboards from "../whiteboard/Whiteboards.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as EventSink from "./EventSink.ts";
@@ -623,6 +625,8 @@ export const layer: Layer.Layer<
     const providerEventIngestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
     const serverSettings = yield* ServerSettings.ServerSettingsService;
     const mcpAppModelContext = yield* McpAppModelContext.McpAppModelContext;
+    // Optional so the fork's whiteboard adds no requirement to this layer or its many test layers.
+    const whiteboards = yield* Effect.serviceOption(Whiteboards.Whiteboards);
     const previewAgentActivity = yield* PreviewAgentActivity.PreviewAgentActivity;
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
     const finalizationObserver = yield* RunFinalizationService.RunFinalizationObserver;
@@ -1766,7 +1770,7 @@ export const layer: Layer.Layer<
           }),
         );
         yield* touchMcpCredential;
-        const appContext = (yield* mcpAppModelContext
+        const mcpAppContext = (yield* mcpAppModelContext
           .forThread(input.run.threadId)
           .pipe(
             Effect.catch((cause) =>
@@ -1781,6 +1785,23 @@ export const layer: Layer.Layer<
           key: `mcp_app_${entry.itemId.replace(/[^\w.-]/g, "_")}`,
           text: entry.text,
         }));
+        // The note is handed over once, so a slash command, which carries no context, must not take it.
+        const whiteboardNote =
+          Option.isNone(whiteboards) || input.message.text.trimStart().startsWith("/")
+            ? null
+            : yield* whiteboards.value
+                .takeUserChangeNote(input.run.threadId)
+                .pipe(
+                  Effect.catch((cause) =>
+                    Effect.logWarning("Failed to read whiteboard changes.", { cause }).pipe(
+                      Effect.as(null),
+                    ),
+                  ),
+                );
+        const appContext =
+          whiteboardNote === null
+            ? mcpAppContext
+            : [...mcpAppContext, { key: "whiteboard", text: whiteboardNote }];
         const turnInput = {
           appThread: input.appThread,
           threadId: input.run.threadId,

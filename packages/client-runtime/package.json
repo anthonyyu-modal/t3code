@@ -503,6 +503,10 @@
       "types": "./src/state/mcpApps.ts",
       "default": "./src/state/mcpApps.ts"
     },
+    "./state/whiteboard": {
+      "types": "./src/state/whiteboard.ts",
+      "default": "./src/state/whiteboard.ts"
+    },
     "./source-control-clients": {
       "types": "./src/sourceControlClients.ts",
       "default": "./src/sourceControlClients.ts"

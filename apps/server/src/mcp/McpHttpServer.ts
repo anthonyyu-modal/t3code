@@ -29,6 +29,7 @@ import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
+import * as Whiteboards from "../whiteboard/Whiteboards.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -78,6 +79,12 @@ import {
 } from "./toolkits/device/tools.ts";
 import * as HtmlHandlers from "./toolkits/html/handlers.ts";
 import { HtmlPreviewTool, HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolkits/html/tools.ts";
+import * as WhiteboardHandlers from "./toolkits/whiteboard/handlers.ts";
+import {
+  WhiteboardDataToolkit,
+  WhiteboardViewTool,
+  WhiteboardViewToolkit,
+} from "./toolkits/whiteboard/tools.ts";
 import { requestUrl } from "../requestUrl.ts";
 
 const mcpResourceMetadataUrl = (request: HttpServerRequest.HttpServerRequest) =>
@@ -828,6 +835,29 @@ const registerHtmlPreview = Effect.fn("McpHttpServer.registerHtmlPreview")(funct
   );
 });
 
+const registerWhiteboardView = Effect.fn("McpHttpServer.registerWhiteboardView")(function* () {
+  const whiteboards = yield* Whiteboards.Whiteboards;
+  const threads = yield* ThreadManagementService.ThreadManagementService;
+  const built = yield* decodeAsAdvertised(WhiteboardViewToolkit);
+  yield* registerImageTool(
+    WhiteboardViewTool,
+    (payload) =>
+      built
+        .handle("whiteboard_view", payload)
+        .pipe(Stream.unwrap, Stream.run(Sink.last()), Effect.flatMap(Effect.fromOption)),
+    (effect) =>
+      effect.pipe(
+        Effect.provideService(Whiteboards.Whiteboards, whiteboards),
+        Effect.provideService(ThreadManagementService.ThreadManagementService, threads),
+      ),
+    "whiteboard",
+    (error) =>
+      isOrchestratorMcpFailure(error) || AiError.isAiError(error)
+        ? error.message
+        : "The whiteboard picture failed.",
+  );
+});
+
 /**
  * Tools that hand work to another thread's agent: they create it, message it,
  * steer it, or move context into it. Their events name the receiving agent too.
@@ -1143,6 +1173,12 @@ export const layerHtmlToolkit = Layer.mergeAll(
   imageToolRegistration(registerHtmlPreview(), HtmlHandlers.layerPreview),
 ).pipe(Layer.provide(HtmlRender.layer));
 
+// Whiteboards comes from the server layer, the same store its WebSocket clients write to.
+const layerWhiteboardToolkit = Layer.mergeAll(
+  toolkitRegistration(WhiteboardDataToolkit, WhiteboardHandlers.layerData),
+  imageToolRegistration(registerWhiteboardView(), WhiteboardHandlers.layerView),
+);
+
 const layerPreviewStandardToolkitRegistration = toolkitRegistration(
   PreviewStandardToolkit,
   PreviewHandlers.layerStandard,
@@ -1249,6 +1285,7 @@ export const layerTools = Layer.mergeAll(
   layerPullRequestsToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
+  layerWhiteboardToolkit,
 );
 
 export const layer = layerMcpTransport(layerTools);

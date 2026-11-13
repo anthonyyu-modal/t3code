@@ -2008,6 +2008,9 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__t3_environment_links",
   "mcp__t3-code__html_preview",
   "mcp__t3-code__html_render",
+  "mcp__t3-code__whiteboard_read",
+  "mcp__t3-code__whiteboard_view",
+  "mcp__t3-code__whiteboard_edit",
 ];
 
 // T3 waits can block for an hour; exceed Claude's default 60 s timeout.
@@ -2409,6 +2412,35 @@ export function makeClaudeUserMessage(input: {
     parent_tool_use_id: null,
     ...(input.priority === undefined ? {} : { priority: input.priority }),
     ...(input.uuid === undefined ? {} : { uuid: input.uuid }),
+  };
+}
+
+/**
+ * Notes the server holds for the model (MCP app state, whiteboard changes) go in as quoted user
+ * input ahead of the request, once per change. A native slash command must stay the whole message.
+ */
+export function withClaudeAppContext(
+  message: SDKUserMessage,
+  appContext: ProviderAdapter.ProviderAdapterV2TurnInput["appContext"],
+  sent: Map<string, string>,
+): SDKUserMessage {
+  const content = message.message.content;
+  if (typeof content === "string" && content.trimStart().startsWith("/")) return message;
+  const fresh = (appContext ?? []).filter((entry) => sent.get(entry.key) !== entry.text);
+  if (fresh.length === 0) return message;
+  for (const entry of fresh) sent.set(entry.key, entry.text);
+  const context = fresh
+    .map((entry) => `<external_${entry.key}>\n${entry.text}\n</external_${entry.key}>`)
+    .join("\n");
+  return {
+    ...message,
+    message: {
+      ...message.message,
+      content: [
+        { type: "text", text: context },
+        ...(typeof content === "string" ? [{ type: "text" as const, text: content }] : content),
+      ],
+    },
   };
 }
 
@@ -5246,6 +5278,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           new Map<string, OrchestrationV2ProviderThread>(),
         );
         const goalsByNativeThread = new Map<string, OrchestrationV2ProviderGoal | null>();
+        const appContextSentByNativeThread = new Map<string, Map<string, string>>();
         const goalCheckedTurns = new Set<string>();
         // Background subagents can finish after root settlement; retain their registry for wake evidence and hydration.
         const sessionSubagentsByTaskId = yield* Ref.make(new Map<string, ActiveClaudeSubagent>());
@@ -11239,7 +11272,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               pdfBudgets.get(nativeThreadId)!,
               persistAttachmentBudget(nativeThreadId),
             );
-            const userMessage =
+            const plainUserMessage =
               promptUuid === null
                 ? null
                 : yield* makeClaudeUserMessageWithAttachments({
@@ -11258,6 +11291,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
                     Effect.provideService(Path.Path, path),
                   );
+            const appContextSent = appContextSentByNativeThread.get(nativeThreadId) ?? new Map();
+            appContextSentByNativeThread.set(nativeThreadId, appContextSent);
+            const userMessage =
+              plainUserMessage === null
+                ? null
+                : withClaudeAppContext(plainUserMessage, turnInput.appContext, appContextSent);
             const querySession = yield* openQuery(turnInput, nativeThreadId);
             const autoCompactWindow = yield* resolveAutoCompactWindow(
               querySession.settingsCwd,

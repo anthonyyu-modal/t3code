@@ -124,6 +124,17 @@ import {
   WorktreeSetupSubscribeInput,
 } from "./worktreeSetup.ts";
 import {
+  WhiteboardActivityEvent,
+  WhiteboardActivitySubscribeInput,
+  WhiteboardError,
+  WhiteboardSaveInput,
+  WhiteboardSaveResult,
+  WhiteboardScene,
+  WhiteboardSnapshotInput,
+  WhiteboardStreamEvent,
+  WhiteboardThreadInput,
+} from "./whiteboard.ts";
+import {
   GitActionProgressEvent,
   VcsSwitchRefInput,
   VcsSwitchRefResult,
@@ -616,6 +627,11 @@ export const WS_METHODS = {
   vcsRefreshBranch: "vcs.refreshBranch",
   subscribeWorktreeSetup: "subscribeWorktreeSetup",
   worktreeSetupCancel: "worktreeSetup.cancel",
+  whiteboardGet: "whiteboard.get",
+  whiteboardSave: "whiteboard.save",
+  whiteboardSubmitSnapshot: "whiteboard.submitSnapshot",
+  subscribeWhiteboard: "subscribeWhiteboard",
+  subscribeWhiteboardActivity: "subscribeWhiteboardActivity",
   subscribeTerminalMetadata: "subscribeTerminalMetadata",
   subscribePreviewEvents: "subscribePreviewEvents",
   subscribeDiscoveredLocalServers: "subscribeDiscoveredLocalServers",
@@ -1521,6 +1537,37 @@ const WsSubscribeWorktreeSetupRpc = Rpc.make(WS_METHODS.subscribeWorktreeSetup, 
   stream: true,
 });
 
+const WsWhiteboardGetRpc = Rpc.make(WS_METHODS.whiteboardGet, {
+  payload: WhiteboardThreadInput,
+  success: WhiteboardScene,
+  error: Schema.Union([WhiteboardError, EnvironmentAuthorizationError]),
+});
+
+const WsWhiteboardSaveRpc = Rpc.make(WS_METHODS.whiteboardSave, {
+  payload: WhiteboardSaveInput,
+  success: WhiteboardSaveResult,
+  error: Schema.Union([WhiteboardError, EnvironmentAuthorizationError]),
+});
+
+const WsWhiteboardSubmitSnapshotRpc = Rpc.make(WS_METHODS.whiteboardSubmitSnapshot, {
+  payload: WhiteboardSnapshotInput,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsSubscribeWhiteboardRpc = Rpc.make(WS_METHODS.subscribeWhiteboard, {
+  payload: WhiteboardThreadInput,
+  success: WhiteboardStreamEvent,
+  error: Schema.Union([WhiteboardError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+const WsSubscribeWhiteboardActivityRpc = Rpc.make(WS_METHODS.subscribeWhiteboardActivity, {
+  payload: WhiteboardActivitySubscribeInput,
+  success: WhiteboardActivityEvent,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
 const WsWorktreeSetupCancelRpc = Rpc.make(WS_METHODS.worktreeSetupCancel, {
   payload: WorktreeSetupCancelInput,
   success: WorktreeSetupCancelResult,
@@ -2212,6 +2259,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsRefreshBranchRpc,
   WsSubscribeWorktreeSetupRpc,
   WsWorktreeSetupCancelRpc,
+  WsWhiteboardGetRpc,
+  WsWhiteboardSaveRpc,
+  WsWhiteboardSubmitSnapshotRpc,
+  WsSubscribeWhiteboardRpc,
+  WsSubscribeWhiteboardActivityRpc,
   WsVcsPullRpc,
   WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,

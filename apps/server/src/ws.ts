@@ -211,6 +211,7 @@ import { readWorkflowScript } from "./orchestration-v2/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
+import * as Whiteboards from "./whiteboard/Whiteboards.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import { refreshPushedPullRequests } from "./git/refreshPushedPullRequests.ts";
 import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
@@ -1424,6 +1425,7 @@ export const layerWsRpc = (
 
       const providerSessionsV2 = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const mcpAppRequests = yield* McpAppRequests.McpAppRequests;
+      const whiteboards = yield* Whiteboards.Whiteboards;
       const analytics = yield* AnalyticsService.AnalyticsService;
       const originProps = clientAnalyticsProps;
       const recordClientCommandAnalytics = (command: OrchestrationV2Command) => {
@@ -3147,6 +3149,11 @@ export const layerWsRpc = (
           vcsStatusBroadcaster.refreshBranchStatus(input).pipe(Effect.asVoid),
         [WS_METHODS.subscribeVcsStatus]: (input) => vcsStatusBroadcaster.streamStatus(input),
         [WS_METHODS.subscribeWorktreeSetup]: (input) => worktreeSetupTracker.stream(input.threadId),
+        [WS_METHODS.whiteboardGet]: (input) => whiteboards.get(input.threadId),
+        [WS_METHODS.whiteboardSave]: (input) => whiteboards.save(input),
+        [WS_METHODS.whiteboardSubmitSnapshot]: (input) => whiteboards.submitSnapshot(input),
+        [WS_METHODS.subscribeWhiteboard]: (input) => whiteboards.stream(input.threadId),
+        [WS_METHODS.subscribeWhiteboardActivity]: (_input) => whiteboards.activity,
         [WS_METHODS.worktreeSetupCancel]: (input) =>
           worktreeSetupTracker
             .cancel(input.threadId)
@@ -3535,6 +3542,7 @@ export const layer = Layer.unwrap(
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
     const peerLinks = yield* PeerLinks.PeerLinks;
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
+    const whiteboards = yield* Whiteboards.Whiteboards;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3624,6 +3632,8 @@ export const layer = Layer.unwrap(
               ),
               Layer.provide(Layer.succeed(PeerLinks.PeerLinks, peerLinks)),
               Layer.provide(Layer.succeed(PeerLinkRequests.PeerLinkRequests, peerLinkRequests)),
+              // Server-lifetime, so every connection and the agent tools share one board store.
+              Layer.provide(Layer.succeed(Whiteboards.Whiteboards, whiteboards)),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(
