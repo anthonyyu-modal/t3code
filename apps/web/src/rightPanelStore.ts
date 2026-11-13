@@ -32,6 +32,7 @@ const RIGHT_PANEL_KINDS = [
   "issue",
   "thread",
   "linked-thread",
+  "whiteboard",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -109,7 +110,8 @@ export type RightPanelSurface =
    */
   | ThreadSurface
   /** A linked environment's thread, read through `viaEnvironmentId`; it has no thread here. */
-  | LinkedThreadSurface;
+  | LinkedThreadSurface
+  | { id: "whiteboard"; kind: "whiteboard" };
 
 export type ThreadSurface = { id: `thread:${string}`; kind: "thread"; threadId: ThreadId };
 
@@ -178,7 +180,7 @@ interface RightPanelStoreState {
   openProactive: (
     ref: ScopedThreadRef,
     request:
-      | Extract<RightPanelSurface, { kind: "pull-request" | "pull-requests" }>
+      | Extract<RightPanelSurface, { kind: "pull-request" | "pull-requests" | "whiteboard" }>
       | { kind: "diff"; turnId: RunId },
     expectedUserActionRevision: number,
     activateExisting?: boolean,
@@ -299,6 +301,8 @@ const singletonSurface = (
       return { id: "pull-requests", kind };
     case "device":
       return { id: "device", kind };
+    case "whiteboard":
+      return { id: "whiteboard", kind };
   }
 };
 
