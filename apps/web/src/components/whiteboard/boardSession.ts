@@ -33,34 +33,9 @@ const QUIET = { reportFailure: false } as const;
 
 type RemoteElements = Parameters<typeof reconcileElements>[1];
 
-// How each board looked and what it held when its tab last closed. The right panel rebuilds a tab
-// every time it is shown again, which would otherwise reset the view and the pen to their defaults.
-type BoardLook = Pick<AppState, "scrollX" | "scrollY" | "zoom">;
-const lastLooks = new Map<
-  string,
-  { readonly look: BoardLook; readonly versions: SyncedVersions }
->();
-
-const lookKey = (threadRef: ScopedThreadRef) => `${threadRef.environmentId}:${threadRef.threadId}`;
-
-/** The view and pen a board had when its tab last closed, for Excalidraw's initial state. */
-export function lastBoardLook(threadRef: ScopedThreadRef): BoardLook | null {
-  return lastLooks.get(lookKey(threadRef))?.look ?? null;
-}
-
-// The view, plus every `currentItem…` pen setting riding along untyped.
-function boardLook(state: AppState): BoardLook {
-  return Object.fromEntries(
-    Object.entries(state).filter(
-      ([key]) =>
-        key === "scrollX" || key === "scrollY" || key === "zoom" || key.startsWith("currentItem"),
-    ),
-  ) as BoardLook;
-}
-
 export interface BoardSession {
-  /** Call with the board's elements whenever Excalidraw reports a change. */
-  readonly changed: (elements: ReadonlyArray<SyncElement>) => void;
+  /** Call with the board's elements and state whenever Excalidraw reports a change. */
+  readonly changed: (elements: ReadonlyArray<SyncElement>, state: AppState) => void;
   /** Stops following the server and sends whatever is still unsaved. */
   readonly close: () => void;
 }
@@ -93,7 +68,32 @@ export function openBoardSession(input: {
   let resave = false;
   let loaded = false;
   let lastEvent: WhiteboardStreamEvent | null = null;
-  const lastLook = lastLooks.get(lookKey(input.threadRef));
+  // Drawn while the board was off screen. It has no size there, so nothing can be brought into
+  // view until it is back.
+  const unseen = new Set<string>();
+
+  // Whatever the agent draws or moves has to end up where the user can see it.
+  const bringIntoView = (
+    drawn: ReadonlyArray<SyncElement>,
+    state: AppState,
+    look: { readonly always: boolean; readonly animate: boolean },
+  ) => {
+    if (drawn.length === 0) return;
+    if (state.width === 0 || state.height === 0) {
+      for (const element of drawn) unseen.add(element.id);
+      return;
+    }
+    const outOfSight = anyOutsideViewport(drawn, {
+      scrollX: state.scrollX,
+      scrollY: state.scrollY,
+      width: state.width,
+      height: state.height,
+      zoom: state.zoom.value,
+    });
+    if (look.always || outOfSight) {
+      board.scrollToContent(undefined, { fitToContent: true, animate: look.animate });
+    }
+  };
 
   const flush = async () => {
     if (saving) {
@@ -174,28 +174,11 @@ export function openBoardSession(input: {
       }
     }
     void loadMissingFiles(event.fileIds);
-    const state = board.getAppState();
-    // A reopened tab compares against what the board held when it closed, so only what changed
-    // in between counts as newly drawn.
-    const reopened = firstScene && lastLook !== undefined;
-    const known = reopened ? lastLook.versions : before;
+    if (!firstScene && event.editor !== "agent") return;
     const drawn = remote.filter(
-      (element) => !element.isDeleted && (known.get(element.id) ?? 0) < element.version,
+      (element) => !element.isDeleted && (before.get(element.id) ?? 0) < element.version,
     );
-    // Whatever the agent draws or moves has to end up where the user can see it.
-    const drawnOutOfSight =
-      (event.editor === "agent" || reopened) &&
-      anyOutsideViewport(drawn, {
-        scrollX: state.scrollX,
-        scrollY: state.scrollY,
-        width: state.width,
-        height: state.height,
-        zoom: state.zoom.value,
-      });
-    const opensOnEverything = firstScene && !reopened && drawn.length > 0;
-    if (opensOnEverything || drawnOutOfSight) {
-      board.scrollToContent(undefined, { fitToContent: true, animate: !firstScene });
-    }
+    bringIntoView(drawn, board.getAppState(), { always: firstScene, animate: !firstScene });
   };
 
   const sendPicture = async (requestId: string) => {
@@ -247,17 +230,16 @@ export function openBoardSession(input: {
   );
 
   return {
-    changed: (elements) => {
+    changed: (elements, state) => {
+      if (unseen.size > 0 && state.width > 0 && state.height > 0) {
+        const drawn = elements.filter((element) => unseen.has(element.id) && !element.isDeleted);
+        unseen.clear();
+        bringIntoView(drawn, state, { always: false, animate: false });
+      }
       // Until the first scene arrives, every element would look unsaved.
       if (loaded && unsavedElements(elements, synced).length > 0) scheduleSave();
     },
     close: () => {
-      lastLooks.set(lookKey(input.threadRef), {
-        look: boardLook(board.getAppState()),
-        versions: new Map(
-          board.getSceneElementsIncludingDeleted().map((element) => [element.id, element.version]),
-        ),
-      });
       unsubscribe();
       if (saveTimer !== null) clearTimeout(saveTimer);
       saveTimer = null;

@@ -7,7 +7,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { useRenderedAppearance } from "../../hooks/useTheme";
-import { lastBoardLook, openBoardSession, type BoardSession } from "./boardSession";
+import { openBoardSession, type BoardSession } from "./boardSession";
 import { useRightDragPan } from "./useRightDragPan";
 
 /**
@@ -24,7 +24,7 @@ export default function WhiteboardPanel({ threadRef }: { readonly threadRef: Sco
 
   // A layout effect, because its cleanup has to read the board before Excalidraw empties it: a
   // parent's layout cleanup runs ahead of a child's unmount, and a passive one runs after it.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- follows the server's copy of the board while the tab is mounted, and sends what is unsaved when it closes
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- follows the server's copy of the board while the board is mounted, and sends what is unsaved when it closes
   useLayoutEffect(() => {
     if (board === null) return;
     const opened = openBoardSession({
@@ -53,13 +53,12 @@ export default function WhiteboardPanel({ threadRef }: { readonly threadRef: Sco
     >
       <Excalidraw
         excalidrawAPI={setBoard}
-        initialData={{ appState: lastBoardLook(threadRef) }}
         theme={appearance}
         name="whiteboard"
         UIOptions={{
           canvasActions: { loadScene: false, saveToActiveFile: false, toggleTheme: false },
         }}
-        onChange={(elements) => session.current?.changed(elements)}
+        onChange={(elements, state) => session.current?.changed(elements, state)}
       >
         <MainMenu>
           <MainMenu.DefaultItems.SaveAsImage />

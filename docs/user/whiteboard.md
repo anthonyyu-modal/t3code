@@ -17,6 +17,6 @@ An agent reads shapes, text, and arrows as data. Freehand strokes and pasted ima
 - The note about your changes reaches Claude and Codex agents. Agents on other providers see your changes when they read the board, so ask them to look.
 - An image over 4 MB stays on the device where you pasted it.
 - Forks and side chats are threads of their own, each with its own board.
-- Switching to another tab keeps the board's view and pen, but its undo history starts over.
+- Undo history, zoom, and the pen survive switching tabs, closing the panel, and visiting other threads. They start over when you close the Whiteboard tab, reload the app, or open boards in more than five threads; the drawing itself is always saved.
 - On macOS, Excalidraw's Cmd+Option+`[` and `]` for sending a shape to the back or front do nothing in this Excalidraw version. Use the right-click menu or the Layers buttons.
 - Mobile has no Whiteboard tab yet. Agents can still read and draw on the board from a thread you run on mobile.

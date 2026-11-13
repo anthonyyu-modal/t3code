@@ -8,6 +8,7 @@ import { SidebarInset } from "../components/ui/sidebar";
 import { resolveThreadRouteTarget, type ThreadRouteTarget } from "../threadRoutes";
 import { retainThreadFindForRoute } from "../components/chat/threadFindStore";
 import { ThreadLinkPrompt } from "../components/promptLinks/ThreadLinkPrompt";
+import { LiveWhiteboards } from "../components/whiteboard/liveBoards";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
 
 function threadRouteTargetKey(target: ThreadRouteTarget | null) {
@@ -41,6 +42,7 @@ function ChatRouteLayout() {
         <Outlet />
       )}
       {modalOpen ? <Outlet /> : null}
+      <LiveWhiteboards />
     </>
   );
 }
