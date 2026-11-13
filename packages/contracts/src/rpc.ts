@@ -149,15 +149,23 @@ import {
   WorktreeSetupSubscribeInput,
 } from "./worktreeSetup.ts";
 import {
+  SharedWhiteboard,
   WhiteboardActivityEvent,
   WhiteboardActivitySubscribeInput,
+  WhiteboardBoardInput,
+  WhiteboardBoardRejected,
+  WhiteboardCreateInput,
+  WhiteboardDeleteInput,
+  WhiteboardDirectory,
+  WhiteboardDirectorySubscribeInput,
   WhiteboardError,
+  WhiteboardRenameInput,
   WhiteboardSaveInput,
   WhiteboardSaveResult,
   WhiteboardScene,
+  WhiteboardSelectInput,
   WhiteboardSnapshotInput,
   WhiteboardStreamEvent,
-  WhiteboardThreadInput,
 } from "./whiteboard.ts";
 import {
   GitActionProgressEvent,
@@ -754,8 +762,13 @@ export const WS_METHODS = {
   whiteboardGet: "whiteboard.get",
   whiteboardSave: "whiteboard.save",
   whiteboardSubmitSnapshot: "whiteboard.submitSnapshot",
+  whiteboardCreate: "whiteboard.create",
+  whiteboardRename: "whiteboard.rename",
+  whiteboardDelete: "whiteboard.delete",
+  whiteboardSelect: "whiteboard.select",
   subscribeWhiteboard: "subscribeWhiteboard",
   subscribeWhiteboardActivity: "subscribeWhiteboardActivity",
+  subscribeWhiteboardDirectory: "subscribeWhiteboardDirectory",
   subscribeTerminalMetadata: "subscribeTerminalMetadata",
   subscribePreviewEvents: "subscribePreviewEvents",
   subscribeDiscoveredLocalServers: "subscribeDiscoveredLocalServers",
@@ -1898,16 +1911,22 @@ const WsSubscribeWorktreeSetupRpc = Rpc.make(WS_METHODS.subscribeWorktreeSetup, 
   stream: true,
 });
 
+const WhiteboardBoardFailure = Schema.Union([
+  WhiteboardError,
+  WhiteboardBoardRejected,
+  EnvironmentAuthorizationError,
+]);
+
 const WsWhiteboardGetRpc = Rpc.make(WS_METHODS.whiteboardGet, {
-  payload: WhiteboardThreadInput,
+  payload: WhiteboardBoardInput,
   success: WhiteboardScene,
-  error: Schema.Union([WhiteboardError, EnvironmentAuthorizationError]),
+  error: WhiteboardBoardFailure,
 });
 
 const WsWhiteboardSaveRpc = Rpc.make(WS_METHODS.whiteboardSave, {
   payload: WhiteboardSaveInput,
   success: WhiteboardSaveResult,
-  error: Schema.Union([WhiteboardError, EnvironmentAuthorizationError]),
+  error: WhiteboardBoardFailure,
 });
 
 const WsWhiteboardSubmitSnapshotRpc = Rpc.make(WS_METHODS.whiteboardSubmitSnapshot, {
@@ -1915,9 +1934,37 @@ const WsWhiteboardSubmitSnapshotRpc = Rpc.make(WS_METHODS.whiteboardSubmitSnapsh
   error: EnvironmentAuthorizationError,
 });
 
+const WsWhiteboardCreateRpc = Rpc.make(WS_METHODS.whiteboardCreate, {
+  payload: WhiteboardCreateInput,
+  success: SharedWhiteboard,
+  error: WhiteboardBoardFailure,
+});
+
+const WsWhiteboardRenameRpc = Rpc.make(WS_METHODS.whiteboardRename, {
+  payload: WhiteboardRenameInput,
+  error: WhiteboardBoardFailure,
+});
+
+const WsWhiteboardDeleteRpc = Rpc.make(WS_METHODS.whiteboardDelete, {
+  payload: WhiteboardDeleteInput,
+  error: WhiteboardBoardFailure,
+});
+
+const WsWhiteboardSelectRpc = Rpc.make(WS_METHODS.whiteboardSelect, {
+  payload: WhiteboardSelectInput,
+  error: WhiteboardBoardFailure,
+});
+
 const WsSubscribeWhiteboardRpc = Rpc.make(WS_METHODS.subscribeWhiteboard, {
-  payload: WhiteboardThreadInput,
+  payload: WhiteboardBoardInput,
   success: WhiteboardStreamEvent,
+  error: WhiteboardBoardFailure,
+  stream: true,
+});
+
+const WsSubscribeWhiteboardDirectoryRpc = Rpc.make(WS_METHODS.subscribeWhiteboardDirectory, {
+  payload: WhiteboardDirectorySubscribeInput,
+  success: WhiteboardDirectory,
   error: Schema.Union([WhiteboardError, EnvironmentAuthorizationError]),
   stream: true,
 });
@@ -2737,8 +2784,13 @@ export const WsRpcGroup = RpcGroup.make(
   WsWhiteboardGetRpc,
   WsWhiteboardSaveRpc,
   WsWhiteboardSubmitSnapshotRpc,
+  WsWhiteboardCreateRpc,
+  WsWhiteboardRenameRpc,
+  WsWhiteboardDeleteRpc,
+  WsWhiteboardSelectRpc,
   WsSubscribeWhiteboardRpc,
   WsSubscribeWhiteboardActivityRpc,
+  WsSubscribeWhiteboardDirectoryRpc,
   WsVcsPullRpc,
   WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,
