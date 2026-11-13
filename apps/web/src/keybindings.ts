@@ -22,6 +22,7 @@ import {
 } from "@t3tools/shared/keybindings";
 import { isElectron } from "./env";
 import { isEditableFocused } from "./lib/editableFocus";
+import { isWhiteboardKey } from "./lib/whiteboardKeys";
 import { projectScriptIdFromCommand } from "./projectScripts";
 import { getKeyboardLayoutMap } from "./keyboardLayout";
 
@@ -198,6 +199,7 @@ export function resolveShortcutCommand(
   options?: ShortcutMatchOptions,
 ): KeybindingCommand | null {
   const platform = resolvePlatform(options);
+  if (isWhiteboardKey(event, platform)) return null;
   const context = resolveContext(options);
   if (options?.context?.editableFocus === undefined && typeof document !== "undefined") {
     context.editableFocus = isEditableFocused(event.target ?? document.activeElement);
