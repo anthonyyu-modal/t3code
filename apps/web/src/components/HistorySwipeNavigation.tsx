@@ -67,13 +67,14 @@ function lockSwipeAxis(
   if (Math.abs(sumX) <= Math.abs(sumY) || isVerticalScroll(Math.abs(sumX), Math.abs(sumY))) {
     return { kind: "ignored" };
   }
-  // Preview contents can scroll in another document or on the server, outside this DOM.
+  // A dialog holds the page behind it still, an application region (the whiteboard) pans, and
+  // preview contents can scroll in another document or on the server, outside this DOM.
   if (
     path.some(
       (node) =>
         node instanceof Element &&
         node.matches(
-          '[role="dialog"], [data-preview-panel-mode], [data-preview-viewport], [data-server-browser-surface]',
+          '[role="dialog"], [role="application"], [data-preview-panel-mode], [data-preview-viewport], [data-server-browser-surface]',
         ),
     )
   ) {
