@@ -52,6 +52,8 @@ interface FileBrowserPanelProps {
   selectedPath: string | null;
   selectedPathRevealId: number;
   onOpenFile: (relativePath: string) => void;
+  /** Saves a file to this device. Takes the same path `onOpenFile` does. */
+  onDownloadFile?: (relativePath: string) => void;
   /** Host-folder entries use absolute paths. Avoid full traversal: disable expand-all and search only
    * loaded folders. */
   hostFolder?: boolean;
@@ -158,6 +160,7 @@ export default function FileBrowserPanel({
   selectedPath,
   selectedPathRevealId,
   onOpenFile,
+  onDownloadFile,
   onRefreshSelectedFile,
   workspaceMutationId,
   hostFolder = false,
@@ -221,6 +224,10 @@ export default function FileBrowserPanel({
         const clicked = await api.contextMenu.show(
           [
             ...fileMenuItems,
+            // A folder is not one file to send, so only files download.
+            ...(onDownloadFile && entryKindsRef.current.get(relativePath) === "file"
+              ? [{ id: "download", label: gt("Download") }]
+              : []),
             { id: "copy-mention", label: gt("Copy mention") },
             { id: "add-to-chat", label: gt("Add to chat") },
           ],
@@ -232,6 +239,10 @@ export default function FileBrowserPanel({
           fileMenuItems.some((entry) => entry.id === clicked) || clicked.startsWith("editor:");
         if (isFileMenuAction) {
           await fileContextMenu.activate(clicked as FileContextMenuAction, fileTarget);
+          return;
+        }
+        if (clicked === "download") {
+          onDownloadFile?.(panelPath(relativePath));
           return;
         }
         if (clicked === "copy-mention") {
