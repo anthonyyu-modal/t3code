@@ -412,6 +412,12 @@ Follow an agent's file link to read a report or other file outside the workspace
 These files open read-only. An HTML file outside the workspace cannot load scripts,
 styles, or images from neighboring files.
 
+## Downloading workspace files
+
+On web and desktop, right-click a file in the file list and choose **Download**, or select
+**Download file** in the header of an open file, to save a copy from the environment's machine to
+this device. A folder does not download; ask the agent to zip it and download the archive.
+
 ## HTML and PDF files in the file viewer
 
 On web and desktop, HTML and PDF files open as rendered pages. Switch an HTML

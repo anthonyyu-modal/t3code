@@ -82,6 +82,45 @@ describe("FileBrowserPanel", () => {
     await vi.waitFor(() => expect((row.getRootNode() as ShadowRoot).activeElement).toBe(row));
   });
 
+  it("downloads a file from its row's menu, and offers no download for a folder", async () => {
+    const onDownloadFile = vi.fn();
+    await using _screen = await render(
+      <FileBrowserPanel
+        environmentId={EnvironmentId.make("env-files")}
+        cwd="/repo"
+        projectName="repo"
+        selectedPath={null}
+        selectedPathRevealId={0}
+        onOpenFile={() => {}}
+        onDownloadFile={onDownloadFile}
+        workspaceMutationId={null}
+      />,
+    );
+    using _menu = { [Symbol.dispose]: () => dismissContextMenu() };
+    const openMenu = (path: string) =>
+      findTreeRow(path)!.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          button: 2,
+        }),
+      );
+    const download = page.getByRole("menuitem", { name: "Download", exact: true });
+    await vi.waitFor(() => expect(findTreeRow("src/")).not.toBeNull());
+
+    openMenu("src/");
+    await expect
+      .element(page.getByRole("menuitem", { name: "Copy mention", exact: true }))
+      .toBeVisible();
+    await expect.element(download).not.toBeInTheDocument();
+    dismissContextMenu();
+
+    openMenu("README.md");
+    await userEvent.click(download);
+    await vi.waitFor(() => expect(onDownloadFile).toHaveBeenCalledWith("README.md"));
+  });
+
   it("dragging a file row carries a composer mention without opening it, and dragend releases it", async () => {
     const onOpenFile = vi.fn();
     await using _screen = await render(
