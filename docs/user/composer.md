@@ -172,6 +172,12 @@ File links point to the file on the environment's machine, so moving or deleting
 
 Following an agent's file link to a file outside the workspace opens it read-only. External HTML files cannot load neighboring scripts, styles, or images.
 
+## Downloading workspace files
+
+On web and desktop, right-click a file in the file list and choose **Download**, or select
+**Download file** in the header of an open file, to save a copy from the environment's machine to
+this device. A folder does not download; ask the agent to zip it and download the archive.
+
 ## HTML and PDF files in the file viewer
 
 On web and desktop, HTML and PDF files open rendered (HTML previews are sandboxed from your T3 Code session; line-specific HTML links open source view). On mobile, PDFs open in the native iOS viewer or an installed Android viewer.
