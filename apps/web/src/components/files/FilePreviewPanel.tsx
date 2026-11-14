@@ -122,6 +122,7 @@ import {
   FileSurfaceFailure,
   FileSurfaceLoading,
 } from "./fileSurfaceChrome";
+import { useDownloadHostFile } from "./useDownloadHostFile";
 import SourceFilePreview from "./ReadOnlySourcePreview";
 import LargeFilePreview from "./LargeFilePreview";
 import { FULL_TEXT_MAX_BYTES } from "./largeTextProtocol";
@@ -1501,6 +1502,24 @@ export default function FilePreviewPanel({
       : relativePath && attachment === undefined
         ? resolvePathLinkTarget(relativePath, cwd)
         : null;
+  const downloadHostFile = useDownloadHostFile(environmentId);
+  const downloadFile = (path: string) => {
+    const hostPath = resolvePathLinkTarget(path, cwd);
+    void downloadHostFile(
+      // A draft has no thread on the server yet, so its files are named by folder instead.
+      draft
+        ? { _tag: "draft-workspace-file", cwd, path: hostPath }
+        : {
+            _tag: "media-file",
+            threadId: threadRef.threadId,
+            path: hostPath,
+            disposition: "attachment",
+          },
+      hostPath.split(/[\\/]/).at(-1) || hostPath,
+    );
+  };
+  // Documents and files that cannot be shown already offer their download where the file would be.
+  const offersOwnDownload = isDocument || file.readError?.failure === "binary_file";
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
   // Mounting the file read under the workspace mutation id refetches it after each mutation.
   useAtomMount(
@@ -1677,6 +1696,14 @@ export default function FilePreviewPanel({
               onPress={handleOpenInBrowser}
             >
               <Globe2 className="size-3.5" />
+            </FileSurfaceAction>
+          ) : null}
+          {relativePath && absolutePath && file.isFile && !offersOwnDownload ? (
+            <FileSurfaceAction
+              label={gt("Download file")}
+              onPress={() => downloadFile(absolutePath)}
+            >
+              <DownloadIcon className="size-3.5" />
             </FileSurfaceAction>
           ) : null}
           {!isHostFile && previewPath !== null ? (
@@ -1925,6 +1952,7 @@ export default function FilePreviewPanel({
                 }
                 selectedPathRevealId={revealRequestId}
                 onOpenFile={onOpenFile}
+                onDownloadFile={downloadFile}
                 answersPanelFind={!previewPath}
                 workspaceMutationId={workspaceMutationId}
                 {...(previewPath && !isMedia && !isPdf
