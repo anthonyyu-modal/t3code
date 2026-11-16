@@ -77,10 +77,11 @@ export function useRightDragPan(board: ExcalidrawImperativeAPI | null) {
       end(event);
     },
     // macOS raises the menu when the button goes down, before a drag can start, so the browser's
-    // own event is dropped and the release above raises the menu instead.
+    // own event is dropped and the release above raises the menu instead. The pointer capture
+    // taken on that press aims the event at this wrapper rather than the canvas.
     onContextMenuCapture: (event: MouseEvent<HTMLDivElement>) => {
       if (!event.nativeEvent.isTrusted || event.button !== RIGHT_BUTTON) return;
-      if (!(event.target instanceof HTMLCanvasElement)) return;
+      if (drag.current === null && !(event.target instanceof HTMLCanvasElement)) return;
       event.preventDefault();
       event.stopPropagation();
     },
