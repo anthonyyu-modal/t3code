@@ -34,6 +34,22 @@ describe("compileClaudeModelSelection", () => {
     });
   });
 
+  it("sends Fable 5.2's fast mode choice to Claude Code and none for Fable 5.1", () => {
+    const fastOn = [{ id: "fastMode", value: true }];
+
+    expect(compileClaudeModelSelection(selection("claude-fable-5-2", fastOn)).settings).toEqual({
+      fastMode: true,
+    });
+    expect(compileClaudeModelSelection(selection("fable", fastOn)).settings).toEqual({
+      fastMode: true,
+    });
+    // Off is sent too, so a turn never runs fast on a setting from somewhere else.
+    expect(compileClaudeModelSelection(selection("claude-fable-5-2", [])).settings).toEqual({
+      fastMode: false,
+    });
+    expect(compileClaudeModelSelection(selection("claude-fable-5-1", fastOn)).settings).toEqual({});
+  });
+
   it("runs Ultracode at the chosen effort and reads the old Ultracode effort as xhigh", () => {
     expect(
       compileClaudeModelSelection(

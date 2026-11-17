@@ -135,6 +135,73 @@ describe("Claude model catalog", () => {
     );
   });
 
+  it("offers fast mode on Fable 5.2 even though its manifest profile has no toggle for it", () => {
+    const base = manifest();
+    const fable = (slug: string) => ({
+      slug,
+      name: slug,
+      status: "current" as const,
+      profile: "synthetic",
+    });
+    const catalog = catalogFromManifest({
+      ...base,
+      providers: {
+        claudeAgent: {
+          ...base.providers!.claudeAgent!,
+          models: [fable("claude-fable-5-2"), fable("claude-fable-5-1")],
+        },
+      },
+    });
+    const optionIds = (slug: string) =>
+      getClaudeCatalogModelCapabilities(catalog, slug).optionDescriptors?.map(
+        ({ id, type }) => `${id}:${type}`,
+      );
+
+    assert.deepStrictEqual(optionIds("claude-fable-5-2"), [
+      "effort:select",
+      "contextWindow:select",
+      "fastMode:boolean",
+    ]);
+    assert.deepStrictEqual(optionIds("claude-fable-5-1"), [
+      "effort:select",
+      "contextWindow:select",
+    ]);
+  });
+
+  it("keeps the manifest's own fast mode toggle for Fable 5.2 once it has one", () => {
+    const base = manifest();
+    const profile = base.providers!.claudeAgent!.profiles.synthetic!;
+    const manifestToggle = {
+      id: "fastMode",
+      label: "Fast",
+      type: "boolean" as const,
+      currentValue: true,
+    };
+    const catalog = catalogFromManifest({
+      ...base,
+      providers: {
+        claudeAgent: {
+          profiles: {
+            synthetic: { ...profile, capabilities: { optionDescriptors: [manifestToggle] } },
+          },
+          models: [
+            {
+              slug: "claude-fable-5-2",
+              name: "Claude Fable 5.2",
+              status: "current",
+              profile: "synthetic",
+            },
+          ],
+        },
+      },
+    });
+
+    assert.deepStrictEqual(
+      getClaudeCatalogModelCapabilities(catalog, "claude-fable-5-2").optionDescriptors,
+      [manifestToggle],
+    );
+  });
+
   it("resolves aliases and declarative adapter mappings", () => {
     const base = manifest();
     const input: ModelManifestData = {
