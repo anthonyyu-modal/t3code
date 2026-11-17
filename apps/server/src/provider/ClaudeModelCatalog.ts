@@ -52,7 +52,10 @@ function tryResolveClaudeModelCatalog(
     if (Option.isNone(profile) || Option.isNone(adapter)) return null;
     const model = ModelCatalog.catalogServerModel(resolved, entry);
     models.push({
-      model: { ...model, capabilities: withUltracodeToggle(model.capabilities) },
+      model: {
+        ...model,
+        capabilities: withFastModeToggle(model.slug, withUltracodeToggle(model.capabilities)),
+      },
       runtime: profile.value.claudeCode ?? {},
       compatibility: adapter.value.claudeCode ?? {},
     });
@@ -60,6 +63,25 @@ function tryResolveClaudeModelCatalog(
 
   return {
     models,
+  };
+}
+
+/**
+ * Models Claude Code serves in fast mode whose manifest profile has no toggle for it. The manifest
+ * is read from upstream's main, so a toggle written into the bundled copy would not last. Claude
+ * Code serves Fable 5.2 in fast mode from 2.1.321.
+ */
+const FAST_MODE_MODEL_SLUGS: ReadonlySet<string> = new Set(["claude-fable-5-2"]);
+
+function withFastModeToggle(
+  slug: string,
+  capabilities: ModelCapabilities | null,
+): ModelCapabilities | null {
+  if (!FAST_MODE_MODEL_SLUGS.has(slug)) return capabilities;
+  const descriptors = capabilities?.optionDescriptors ?? [];
+  if (descriptors.some((descriptor) => descriptor.id === "fastMode")) return capabilities;
+  return {
+    optionDescriptors: [...descriptors, { id: "fastMode", label: "Fast Mode", type: "boolean" }],
   };
 }
 
