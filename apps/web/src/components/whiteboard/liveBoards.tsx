@@ -1,5 +1,5 @@
 /* oxlint-disable t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md) */
-import type { EnvironmentId, ScopedThreadRef, WhiteboardRef } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef, WhiteboardId } from "@t3tools/contracts";
 import { lazy, Suspense, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { create } from "zustand";
@@ -8,6 +8,7 @@ import { useWhiteboardDirectory } from "../../state/whiteboard";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { boardKey, boardShownIn } from "./boards";
 import { WhiteboardBoardBar } from "./WhiteboardBoardBar";
+import { WhiteboardStart } from "./WhiteboardStart";
 
 const WhiteboardPanel = lazy(() => import("./WhiteboardPanel"));
 
@@ -18,24 +19,24 @@ const DIALOG_BACKDROPS = "body > .excalidraw-modal-container .Modal__background"
 interface LiveBoard {
   readonly key: string;
   readonly environmentId: EnvironmentId;
-  readonly board: WhiteboardRef;
+  readonly boardId: WhiteboardId;
   /** Holds the board's DOM for as long as it lives. A slot puts this element on screen. */
   readonly element: HTMLDivElement;
 }
 
 // Excalidraw keeps its undo history, view and pen only inside its mounted component, and the right
 // panel builds a tab's content anew each time the tab is shown. So boards are mounted here, apart
-// from the panel, least recently shown first. A shared board that two threads show is one board
-// here too, so it keeps its history from one thread to the next.
+// from the panel, least recently shown first. A board that two threads show is one board here
+// too, so it keeps its history from one thread to the next.
 const useLiveBoards = create<{ readonly boards: ReadonlyArray<LiveBoard> }>(() => ({ boards: [] }));
 
-function showBoard(environmentId: EnvironmentId, board: WhiteboardRef): HTMLDivElement {
-  const key = boardKey(environmentId, board);
+function showBoard(environmentId: EnvironmentId, boardId: WhiteboardId): HTMLDivElement {
+  const key = boardKey(environmentId, boardId);
   const { boards } = useLiveBoards.getState();
   const live = boards.find((candidate) => candidate.key === key) ?? {
     key,
     environmentId,
-    board,
+    boardId,
     element: Object.assign(document.createElement("div"), { className: "contents" }),
   };
   useLiveBoards.setState({
@@ -57,30 +58,20 @@ function closeDialogsAfterCommit() {
 
 function BoardSlot(props: {
   readonly environmentId: EnvironmentId;
-  readonly board: WhiteboardRef;
+  readonly boardId: WhiteboardId;
 }) {
-  const { environmentId, board } = props;
+  const { environmentId, boardId } = props;
   const slot = useRef<HTMLDivElement>(null);
-  // The ref is a new object on every render, so the effect follows what it names.
-  const threadId = board.kind === "thread" ? board.threadId : null;
-  const boardId = board.kind === "shared" ? board.boardId : null;
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- moves the live board's DOM element into this tab, and out again when the tab is hidden or shows another board
   useLayoutEffect(() => {
-    const shown: WhiteboardRef | null =
-      threadId !== null
-        ? { kind: "thread", threadId }
-        : boardId !== null
-          ? { kind: "shared", boardId }
-          : null;
-    if (shown === null) return;
-    const element = showBoard(environmentId, shown);
+    const element = showBoard(environmentId, boardId);
     slot.current?.append(element);
     return () => {
       closeDialogsAfterCommit();
       element.remove();
     };
-  }, [environmentId, threadId, boardId]);
+  }, [environmentId, boardId]);
 
   return <div ref={slot} className="min-h-0 flex-1" />;
 }
@@ -103,26 +94,31 @@ export function WhiteboardSlot({ threadRef }: { readonly threadRef: ScopedThread
     );
   }
   const board = boardShownIn(directory, threadRef.threadId);
+  if (board === null) return <WhiteboardStart threadRef={threadRef} directory={directory} />;
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
-      <WhiteboardBoardBar threadRef={threadRef} directory={directory} board={board} />
-      <BoardSlot environmentId={threadRef.environmentId} board={board} />
+      {/* Keyed by board: a name half typed for one board must not go to the next one shown. */}
+      <WhiteboardBoardBar
+        key={board.boardId}
+        threadRef={threadRef}
+        directory={directory}
+        board={board}
+      />
+      <BoardSlot environmentId={threadRef.environmentId} boardId={board.boardId} />
     </div>
   );
 }
 
 function LiveBoardMount({ live }: { readonly live: LiveBoard }) {
-  const { board, environmentId } = live;
+  const { boardId, environmentId } = live;
   const directory = useWhiteboardDirectory(environmentId);
-  // A deleted shared board has nowhere left to save to.
+  // A deleted board has nowhere left to save to.
   const deleted =
-    board.kind === "shared" &&
-    typeof directory !== "string" &&
-    !directory.boards.some((shared) => shared.boardId === board.boardId);
+    typeof directory !== "string" && !directory.boards.some((board) => board.boardId === boardId);
   if (deleted) return null;
   return createPortal(
     <Suspense fallback={null}>
-      <WhiteboardPanel environmentId={environmentId} board={board} />
+      <WhiteboardPanel environmentId={environmentId} boardId={boardId} />
     </Suspense>,
     live.element,
   );

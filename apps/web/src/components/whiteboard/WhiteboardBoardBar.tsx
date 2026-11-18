@@ -2,9 +2,8 @@
 import {
   WHITEBOARD_NAME_MAX_LENGTH,
   type ScopedThreadRef,
-  type SharedWhiteboard,
+  type Whiteboard,
   type WhiteboardDirectory,
-  type WhiteboardRef,
 } from "@t3tools/contracts";
 import { ChevronDownIcon } from "lucide-react";
 import { useState, type FormEvent } from "react";
@@ -26,42 +25,27 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/menu";
-import { boardName } from "./boards";
+import { boardsByName } from "./boards";
 
-const OWN_BOARD = "thread";
-
-type Naming =
-  | { readonly action: "new" | "copy" }
-  | { readonly action: "rename"; readonly shared: SharedWhiteboard };
-
-const NAMING_LABEL = { new: "Create", copy: "Copy", rename: "Rename" } as const;
+const NAMING_LABEL = { new: "Create", copy: "Duplicate", rename: "Rename" } as const;
 
 /**
- * Names the board a thread's Whiteboard tab shows and switches it: the thread's own board, or a
- * shared one that every thread on the server can open.
+ * Names the board a thread's Whiteboard tab shows, and switches the tab to any other board on the
+ * server or to a new one.
  */
 export function WhiteboardBoardBar(props: {
   readonly threadRef: ScopedThreadRef;
   readonly directory: WhiteboardDirectory;
-  readonly board: WhiteboardRef;
+  readonly board: Whiteboard;
 }) {
   const { directory, board } = props;
   const { environmentId, threadId } = props.threadRef;
-  const [naming, setNaming] = useState<Naming | null>(null);
+  const [naming, setNaming] = useState<keyof typeof NAMING_LABEL | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const create = useAtomCommand(whiteboardEnvironment.create);
   const rename = useAtomCommand(whiteboardEnvironment.rename);
   const remove = useAtomCommand(whiteboardEnvironment.remove);
   const select = useAtomCommand(whiteboardEnvironment.select);
-
-  const name = boardName(directory, board);
-  const shared =
-    board.kind === "shared"
-      ? (directory.boards.find((candidate) => candidate.boardId === board.boardId) ?? null)
-      : null;
-  const sharedBoards = directory.boards.toSorted((left, right) =>
-    left.name.localeCompare(right.name),
-  );
 
   const submitName = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -70,17 +54,14 @@ export function WhiteboardBoardBar(props: {
     const nextName = typeof entered === "string" ? entered.trim() : "";
     if (nextName === "") return;
     const result =
-      naming.action === "rename"
-        ? await rename({
-            environmentId,
-            input: { boardId: naming.shared.boardId, name: nextName },
-          })
+      naming === "rename"
+        ? await rename({ environmentId, input: { boardId: board.boardId, name: nextName } })
         : await create({
             environmentId,
             input: {
               name: nextName,
               threadId,
-              ...(naming.action === "copy" ? { copyOf: board } : {}),
+              ...(naming === "copy" ? { copyOf: board.boardId } : {}),
             },
           });
     if (result._tag === "Success") return stopNaming();
@@ -94,12 +75,12 @@ export function WhiteboardBoardBar(props: {
     setRefused(null);
   };
 
-  const deleteBoard = async (target: SharedWhiteboard) => {
+  const deleteBoard = async () => {
     const confirmed = await requestConfirmDialog(
-      `Delete the shared board "${target.name}"? Its drawing is removed for every thread.`,
+      `Delete the board "${board.name}"? Its drawing is removed for every thread.`,
       { variant: "destructive" },
     );
-    if (confirmed === true) await remove({ environmentId, input: { boardId: target.boardId } });
+    if (confirmed === true) await remove({ environmentId, input: { boardId: board.boardId } });
   };
 
   if (naming !== null) {
@@ -112,7 +93,7 @@ export function WhiteboardBoardBar(props: {
             autoFocus
             required
             maxLength={WHITEBOARD_NAME_MAX_LENGTH}
-            defaultValue={naming.action === "rename" ? naming.shared.name : ""}
+            defaultValue={naming === "rename" ? board.name : ""}
             placeholder="Board name"
             aria-label="Board name"
             onChange={() => setRefused(null)}
@@ -122,7 +103,7 @@ export function WhiteboardBoardBar(props: {
           />
         </div>
         <Button type="submit" size="xs">
-          {NAMING_LABEL[naming.action]}
+          {NAMING_LABEL[naming]}
         </Button>
         <Button type="button" size="xs" variant="ghost" onClick={stopNaming}>
           Cancel
@@ -142,52 +123,35 @@ export function WhiteboardBoardBar(props: {
         <DropdownMenuTrigger
           render={<Button size="xs" variant="secondary" />}
           className="max-w-full min-w-0"
-          aria-label={`Board: ${name}`}
+          aria-label={`Board: ${board.name}`}
         >
-          <span className="truncate">{name}</span>
+          <span className="truncate">{board.name}</span>
           <ChevronDownIcon className="size-3.5 shrink-0 opacity-70" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
           <DropdownMenuRadioGroup
-            value={shared?.boardId ?? OWN_BOARD}
-            onValueChange={(value) =>
-              void select({
-                environmentId,
-                input: { threadId, boardId: value === OWN_BOARD ? null : value },
-              })
+            value={board.boardId}
+            onValueChange={(boardId) =>
+              void select({ environmentId, input: { threadId, boardId } })
             }
           >
-            <DropdownMenuRadioItem value={OWN_BOARD} closeOnClick>
-              <span>{boardName(directory, { kind: "thread", threadId })}</span>
-            </DropdownMenuRadioItem>
-            {sharedBoards.map((candidate) => (
+            {boardsByName(directory).map((candidate) => (
               <DropdownMenuRadioItem key={candidate.boardId} value={candidate.boardId} closeOnClick>
                 <span className="truncate">{candidate.name}</span>
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setNaming({ action: "new" })}>
-            New shared board…
+          <DropdownMenuItem onClick={() => setNaming("new")}>New board…</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setNaming("copy")}>
+            Duplicate this board…
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setNaming({ action: "copy" })}>
-            Copy this board to a shared board…
+          <DropdownMenuItem onClick={() => setNaming("rename")}>Rename…</DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" onClick={() => void deleteBoard()}>
+            Delete…
           </DropdownMenuItem>
-          {shared === null ? null : (
-            <>
-              <DropdownMenuItem onClick={() => setNaming({ action: "rename", shared })}>
-                Rename…
-              </DropdownMenuItem>
-              <DropdownMenuItem variant="destructive" onClick={() => void deleteBoard(shared)}>
-                Delete…
-              </DropdownMenuItem>
-            </>
-          )}
         </DropdownMenuContent>
       </DropdownMenu>
-      <span className="truncate text-xs text-muted-foreground">
-        {shared === null ? "Only in this thread" : "Shared with every thread"}
-      </span>
     </div>
   );
 }

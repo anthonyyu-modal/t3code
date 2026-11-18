@@ -12,17 +12,18 @@ vi.mock("../../state/whiteboard", () => ({
   useWhiteboardDirectory: () => state.directory,
 }));
 
-// The picker talks to the server, which this test has none of.
+// The picker and the start screen talk to the server, which this test has none of.
 vi.mock("./WhiteboardBoardBar", () => ({ WhiteboardBoardBar: () => null }));
+vi.mock("./WhiteboardStart", () => ({ WhiteboardStart: () => <p>No board open</p> }));
 
 // Stands in for Excalidraw: like its undo history, the count lives only in the mounted component.
 vi.mock("./WhiteboardPanel", () => ({
-  default: function Board(props: { readonly board: { readonly kind: string } }) {
+  default: function Board(props: { readonly boardId: string }) {
     const [edits, setEdits] = useState(0);
     return (
       <button
         onClick={() => setEdits(edits + 1)}
-      >{`${props.board.kind} board, ${edits} edits`}</button>
+      >{`${props.boardId} board, ${edits} edits`}</button>
     );
   },
 }));
@@ -44,30 +45,28 @@ const panel = (threadRef: typeof threadA | null) => (
 );
 
 it("keeps a board mounted while no tab shows it", async () => {
-  setup({ boards: [], selected: {} });
+  setup({ boards: [plan], selected: { "thread-a": "plan" } });
   // No router: the board and its slot use neither links nor navigation.
   await using screen = await render(panel(threadA), { router: false });
-  await userEvent.click(screen.getByRole("button", { name: "thread board, 0 edits" }));
+  await userEvent.click(screen.getByRole("button", { name: "plan board, 0 edits" }));
 
   await screen.rerender(panel(null));
   await expect.element(screen.getByRole("button")).not.toBeInTheDocument();
   await screen.rerender(panel(threadA));
-  await expect.element(screen.getByRole("button", { name: "thread board, 1 edits" })).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "plan board, 1 edits" })).toBeVisible();
 });
 
-it("shows a shared board as one board in every thread, until it is deleted", async () => {
+it("shows a board as one board in every thread, until it is deleted", async () => {
   setup({ boards: [plan], selected: { "thread-a": "plan", "thread-b": "plan" } });
   // No router: the board and its slot use neither links nor navigation.
   await using screen = await render(panel(threadA), { router: false });
-  await userEvent.click(screen.getByRole("button", { name: "shared board, 0 edits" }));
+  await userEvent.click(screen.getByRole("button", { name: "plan board, 0 edits" }));
 
   await screen.rerender(panel(threadB));
-  await expect.element(screen.getByRole("button", { name: "shared board, 1 edits" })).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "plan board, 1 edits" })).toBeVisible();
 
   setup({ boards: [], selected: {} });
   await screen.rerender(panel(threadB));
-  await expect.element(screen.getByRole("button", { name: "thread board, 0 edits" })).toBeVisible();
-  await expect
-    .element(screen.getByRole("button", { name: /shared board/ }))
-    .not.toBeInTheDocument();
+  await expect.element(screen.getByText("No board open")).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: /plan board/ })).not.toBeInTheDocument();
 });

@@ -24,37 +24,29 @@ export type WhiteboardFiles = typeof WhiteboardFiles.Type;
 export const WhiteboardEditor = Schema.Literals(["user", "agent"]);
 export type WhiteboardEditor = typeof WhiteboardEditor.Type;
 
-/** Names a shared board in the server's whiteboard folder, so it has to be safe as a file name. */
-export const SharedWhiteboardId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9-]{1,64}$/));
-export type SharedWhiteboardId = typeof SharedWhiteboardId.Type;
+/** Names a board's file in the server's whiteboard folder, so it has to be safe as a file name. */
+export const WhiteboardId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9-]{1,64}$/));
+export type WhiteboardId = typeof WhiteboardId.Type;
 
 export const WHITEBOARD_NAME_MAX_LENGTH = 60;
-/** What a thread's own board is called wherever boards are listed. No shared board may take it. */
-export const THREAD_WHITEBOARD_NAME = "This thread";
 
 export const WhiteboardName = TrimmedNonEmptyString.check(
   Schema.isMaxLength(WHITEBOARD_NAME_MAX_LENGTH),
 );
 export type WhiteboardName = typeof WhiteboardName.Type;
 
-/** One board: a thread's own, or one that every thread on the server can open. */
-export const WhiteboardRef = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("thread"), threadId: ThreadId }),
-  Schema.Struct({ kind: Schema.Literal("shared"), boardId: SharedWhiteboardId }),
-]);
-export type WhiteboardRef = typeof WhiteboardRef.Type;
-
-export const SharedWhiteboard = Schema.Struct({
-  boardId: SharedWhiteboardId,
+/** A board. Every thread on the server can open it. */
+export const Whiteboard = Schema.Struct({
+  boardId: WhiteboardId,
   name: WhiteboardName,
 });
-export type SharedWhiteboard = typeof SharedWhiteboard.Type;
+export type Whiteboard = typeof Whiteboard.Type;
 
-/** The server's shared boards, and which board each thread's Whiteboard tab shows. */
+/** The server's boards, and which one each thread's Whiteboard tab shows. */
 export const WhiteboardDirectory = Schema.Struct({
-  boards: Schema.Array(SharedWhiteboard),
-  /** Threads showing a shared board, by thread id. Every other thread shows its own board. */
-  selected: Schema.Record(Schema.String, SharedWhiteboardId),
+  boards: Schema.Array(Whiteboard),
+  /** By thread id. A thread that is not here has yet to open or start a board. */
+  selected: Schema.Record(Schema.String, WhiteboardId),
 });
 export type WhiteboardDirectory = typeof WhiteboardDirectory.Type;
 
@@ -62,34 +54,35 @@ export const WhiteboardDirectorySubscribeInput = Schema.Struct({});
 export type WhiteboardDirectorySubscribeInput = typeof WhiteboardDirectorySubscribeInput.Type;
 
 export const WhiteboardCreateInput = Schema.Struct({
-  name: WhiteboardName,
+  /** Left out, the board is named after the thread in `threadId`. */
+  name: Schema.optional(WhiteboardName),
   /** Starts the new board as a copy of this one. */
-  copyOf: Schema.optional(WhiteboardRef),
+  copyOf: Schema.optional(WhiteboardId),
   /** Shows the new board in this thread's Whiteboard tab. */
   threadId: Schema.optional(ThreadId),
 });
 export type WhiteboardCreateInput = typeof WhiteboardCreateInput.Type;
 
 export const WhiteboardRenameInput = Schema.Struct({
-  boardId: SharedWhiteboardId,
+  boardId: WhiteboardId,
   name: WhiteboardName,
 });
 export type WhiteboardRenameInput = typeof WhiteboardRenameInput.Type;
 
 export const WhiteboardDeleteInput = Schema.Struct({
-  boardId: SharedWhiteboardId,
+  boardId: WhiteboardId,
 });
 export type WhiteboardDeleteInput = typeof WhiteboardDeleteInput.Type;
 
+/** Shows a board in a thread's Whiteboard tab. */
 export const WhiteboardSelectInput = Schema.Struct({
   threadId: ThreadId,
-  /** The shared board the thread's Whiteboard tab should show, or `null` for the thread's own. */
-  boardId: Schema.NullOr(SharedWhiteboardId),
+  boardId: WhiteboardId,
 });
 export type WhiteboardSelectInput = typeof WhiteboardSelectInput.Type;
 
 export const WhiteboardScene = Schema.Struct({
-  board: WhiteboardRef,
+  boardId: WhiteboardId,
   revision: NonNegativeInt,
   elements: Schema.Array(WhiteboardElement),
   files: WhiteboardFiles,
@@ -97,12 +90,12 @@ export const WhiteboardScene = Schema.Struct({
 export type WhiteboardScene = typeof WhiteboardScene.Type;
 
 export const WhiteboardBoardInput = Schema.Struct({
-  board: WhiteboardRef,
+  boardId: WhiteboardId,
 });
 export type WhiteboardBoardInput = typeof WhiteboardBoardInput.Type;
 
 export const WhiteboardSaveInput = Schema.Struct({
-  board: WhiteboardRef,
+  boardId: WhiteboardId,
   /** Names the saving window, so that window can ignore the echo of its own save. */
   clientId: TrimmedNonEmptyString,
   /** The elements this window changed since its last save, deleted ones included. */
@@ -165,7 +158,7 @@ export const WhiteboardActivityEvent = Schema.Struct({
 export type WhiteboardActivityEvent = typeof WhiteboardActivityEvent.Type;
 
 export class WhiteboardError extends Schema.TaggedError<WhiteboardError>()("WhiteboardError", {
-  /** The board's file name, which says whose board it is without the caller decoding a ref. */
+  /** The file that could not be read or written. */
   board: Schema.String,
   operation: Schema.Literals(["load", "save"]),
   cause: Schema.optional(Schema.Defect()),
@@ -186,6 +179,6 @@ export class WhiteboardBoardRejected extends Schema.TaggedError<WhiteboardBoardR
   override get message() {
     return this.reason === "name-taken"
       ? `A board named "${this.board}" already exists.`
-      : `There is no shared board "${this.board}".`;
+      : `There is no board "${this.board}".`;
   }
 }
