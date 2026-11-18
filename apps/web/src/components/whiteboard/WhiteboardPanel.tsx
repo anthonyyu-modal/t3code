@@ -4,7 +4,7 @@ import "./excalidrawAssets";
 import { Excalidraw, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
-import type { EnvironmentId, WhiteboardRef } from "@t3tools/contracts";
+import type { EnvironmentId, WhiteboardId } from "@t3tools/contracts";
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { useRenderedAppearance } from "../../hooks/useTheme";
@@ -17,10 +17,9 @@ import { useRightDragPan } from "./useRightDragPan";
  */
 export default function WhiteboardPanel(props: {
   readonly environmentId: EnvironmentId;
-  readonly board: WhiteboardRef;
+  readonly boardId: WhiteboardId;
 }) {
-  const { environmentId } = props;
-  const target = useRef(props.board);
+  const { environmentId, boardId } = props;
   const appearance = useRenderedAppearance();
   const [board, setBoard] = useState<ExcalidrawImperativeAPI | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
@@ -35,7 +34,7 @@ export default function WhiteboardPanel(props: {
     const opened = openBoardSession({
       board,
       environmentId,
-      target: target.current,
+      target: boardId,
       onSaveFailed: setSaveFailed,
     });
     session.current = opened;
@@ -43,7 +42,7 @@ export default function WhiteboardPanel(props: {
       session.current = null;
       opened.close();
     };
-  }, [board, environmentId]);
+  }, [board, environmentId, boardId]);
 
   return (
     // The application role keeps typed keys and trackpad pans here: the chat view sends typing from
