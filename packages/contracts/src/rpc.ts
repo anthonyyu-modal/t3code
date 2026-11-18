@@ -126,7 +126,7 @@ import {
   WorktreeSetupSubscribeInput,
 } from "./worktreeSetup.ts";
 import {
-  SharedWhiteboard,
+  Whiteboard,
   WhiteboardActivityEvent,
   WhiteboardActivitySubscribeInput,
   WhiteboardBoardInput,
@@ -1749,7 +1749,7 @@ const WsWhiteboardSubmitSnapshotRpc = Rpc.make(WS_METHODS.whiteboardSubmitSnapsh
 
 const WsWhiteboardCreateRpc = Rpc.make(WS_METHODS.whiteboardCreate, {
   payload: WhiteboardCreateInput,
-  success: SharedWhiteboard,
+  success: Whiteboard,
   error: WhiteboardBoardFailure,
 });
 

@@ -1,24 +1,22 @@
-/* oxlint-disable t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md) */
-import {
-  THREAD_WHITEBOARD_NAME,
-  type EnvironmentId,
-  type ThreadId,
-  type WhiteboardDirectory,
-  type WhiteboardRef,
+import type {
+  EnvironmentId,
+  ThreadId,
+  Whiteboard,
+  WhiteboardDirectory,
+  WhiteboardId,
 } from "@t3tools/contracts";
 
-export const boardKey = (environmentId: EnvironmentId, board: WhiteboardRef) =>
-  `${environmentId}:${board.kind}:${board.kind === "thread" ? board.threadId : board.boardId}`;
+export const boardKey = (environmentId: EnvironmentId, boardId: WhiteboardId) =>
+  `${environmentId}:${boardId}`;
 
-/** The board a thread's Whiteboard tab shows: the shared one it chose, or else its own. */
-export function boardShownIn(directory: WhiteboardDirectory, threadId: ThreadId): WhiteboardRef {
+/** The board a thread's Whiteboard tab shows, or `null` until the thread opens or starts one. */
+export function boardShownIn(
+  directory: WhiteboardDirectory,
+  threadId: ThreadId,
+): Whiteboard | null {
   const boardId = directory.selected[threadId];
-  return boardId !== undefined && directory.boards.some((board) => board.boardId === boardId)
-    ? { kind: "shared", boardId }
-    : { kind: "thread", threadId };
+  return directory.boards.find((board) => board.boardId === boardId) ?? null;
 }
 
-export function boardName(directory: WhiteboardDirectory, board: WhiteboardRef): string {
-  if (board.kind === "thread") return THREAD_WHITEBOARD_NAME;
-  return directory.boards.find((shared) => shared.boardId === board.boardId)?.name ?? "Board";
-}
+export const boardsByName = (directory: WhiteboardDirectory): ReadonlyArray<Whiteboard> =>
+  directory.boards.toSorted((left, right) => left.name.localeCompare(right.name));
