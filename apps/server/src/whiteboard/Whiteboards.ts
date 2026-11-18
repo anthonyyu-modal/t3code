@@ -1,19 +1,19 @@
 import {
   NonNegativeInt,
-  SharedWhiteboard,
-  SharedWhiteboardId,
-  THREAD_WHITEBOARD_NAME,
+  ThreadId,
+  WHITEBOARD_NAME_MAX_LENGTH,
+  Whiteboard,
   WhiteboardBoardRejected,
   WhiteboardElement,
   WhiteboardError,
   WhiteboardFiles,
-  type ThreadId,
+  WhiteboardId,
+  WhiteboardName,
   type WhiteboardActivityEvent,
   type WhiteboardCreateInput,
   type WhiteboardDeleteInput,
   type WhiteboardDirectory,
   type WhiteboardEditor,
-  type WhiteboardRef,
   type WhiteboardRenameInput,
   type WhiteboardSaveInput,
   type WhiteboardSaveResult,
@@ -23,6 +23,9 @@ import {
   type WhiteboardSnapshotInput,
   type WhiteboardStreamEvent,
 } from "@t3tools/contracts";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- A board moved from a thread needs the same id every time its old file is read.
+import * as NodeCrypto from "node:crypto";
+
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Clock from "effect/Clock";
@@ -42,6 +45,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import {
   applyWhiteboardEdit,
   describeWhiteboard,
@@ -64,9 +68,7 @@ const StoredBoard = Schema.Struct({
   revision: NonNegativeInt,
   elements: Schema.Array(WhiteboardElement),
   files: WhiteboardFiles,
-  /** A thread's own board: the element versions its agent last saw. Whatever differs changed since. */
-  agentSeen: Schema.NullOr(SeenVersions),
-  /** A shared board: the same, for each thread whose agent has looked at it. */
+  /** The element versions each thread's agent last saw, by thread id. Whatever differs changed since. */
   seenBy: Schema.optional(Schema.Record(Schema.String, SeenVersions)),
 });
 type StoredBoard = typeof StoredBoard.Type;
@@ -75,12 +77,21 @@ const StoredBoardJson = Schema.fromJsonString(StoredBoard);
 const decodeStoredBoard = Schema.decodeUnknownEffect(StoredBoardJson);
 const encodeStoredBoard = Schema.encodeSync(StoredBoardJson);
 
-const EMPTY_BOARD: StoredBoard = { revision: 0, elements: [], files: {}, agentSeen: null };
+const EMPTY_BOARD: StoredBoard = { revision: 0, elements: [], files: {} };
+
+/** A board from when each thread had one of its own, which only that thread's agent saw. */
+const ThreadBoard = Schema.Struct({
+  revision: NonNegativeInt,
+  elements: Schema.Array(WhiteboardElement),
+  files: WhiteboardFiles,
+  agentSeen: Schema.NullOr(SeenVersions),
+});
+const decodeThreadBoard = Schema.decodeUnknownEffect(Schema.fromJsonString(ThreadBoard));
 
 const StoredIndex = Schema.Struct({
-  boards: Schema.Array(SharedWhiteboard),
-  /** Threads whose Whiteboard tab shows a shared board, by thread id. */
-  selected: Schema.Record(Schema.String, SharedWhiteboardId),
+  boards: Schema.Array(Whiteboard),
+  /** The board each thread's Whiteboard tab shows, by thread id. */
+  selected: Schema.Record(Schema.String, WhiteboardId),
   /** Threads whose tab changed board without their agent having been told. */
   unannounced: Schema.Array(Schema.String),
 });
@@ -91,13 +102,15 @@ const decodeStoredIndex = Schema.decodeUnknownEffect(StoredIndexJson);
 const encodeStoredIndex = Schema.encodeSync(StoredIndexJson);
 
 const EMPTY_INDEX: StoredIndex = { boards: [], selected: {}, unannounced: [] };
+// Boards sit in `shared/` because the folder above it used to hold each thread's own board.
 const INDEX_FILE = "shared/index.json";
+const THREAD_BOARD_SUFFIX = ".json";
+const UNTITLED_BOARD_NAME = "Board";
 
-/** Thread ids are opaque strings; keep them from naming a path outside the folder. */
-const fileOf = (board: WhiteboardRef) =>
-  board.kind === "thread"
-    ? `${board.threadId.replace(/[^\w.-]/g, "_")}.json`
-    : `shared/${board.boardId}.json`;
+const fileOf = (boardId: WhiteboardId) => `shared/${boardId}.json`;
+
+const isThreadId = Schema.is(ThreadId);
+const decodeBoardName = Schema.decodeUnknownOption(WhiteboardName);
 
 const sameName = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
 
@@ -112,10 +125,12 @@ export class WhiteboardEditRejected extends Schema.TaggedError<WhiteboardEditRej
 
 export class WhiteboardPictureUnavailable extends Schema.TaggedError<WhiteboardPictureUnavailable>()(
   "WhiteboardPictureUnavailable",
-  { reason: Schema.Literals(["empty", "not-open", "timed-out"]) },
+  { reason: Schema.Literals(["no-board", "empty", "not-open", "timed-out"]) },
 ) {
   override get message() {
     switch (this.reason) {
+      case "no-board":
+        return "This thread's Whiteboard tab shows no board. Name one with board.";
       case "empty":
         return "The whiteboard is empty, so there is nothing to picture.";
       case "not-open":
@@ -132,14 +147,16 @@ export class WhiteboardUnknownBoard extends Schema.TaggedError<WhiteboardUnknown
   { board: Schema.String, boards: Schema.Array(Schema.String) },
 ) {
   override get message() {
-    return `No board is named "${this.board}". Boards: ${this.boards.join(", ")}. To start a new shared board, pass newBoard to whiteboard_edit.`;
+    const known =
+      this.boards.length === 0 ? "There are no boards yet." : `Boards: ${this.boards.join(", ")}.`;
+    return `No board is named "${this.board}". ${known} To start a new board, pass newBoard to whiteboard_edit.`;
   }
 }
 
 export interface WhiteboardAgentView {
-  /** The board that was read, by name. */
-  readonly board: string;
-  /** Every board the agent can name: the thread's own, then the shared ones. */
+  /** The board that was read, by name. `null` when the thread's tab shows none and none was named. */
+  readonly board: string | null;
+  /** Every board, by name. */
   readonly boards: ReadonlyArray<string>;
   readonly revision: number;
   readonly elements: ReadonlyArray<WhiteboardElementView>;
@@ -147,10 +164,13 @@ export interface WhiteboardAgentView {
   readonly changes: WhiteboardChanges | null;
 }
 
-/** Which board an agent means: the one its thread's Whiteboard tab shows, unless it names one. */
+/**
+ * Which board an agent means: the one its thread's Whiteboard tab shows, unless it names one. A
+ * thread whose tab shows none starts a board named after the thread.
+ */
 export interface WhiteboardAgentTarget {
   readonly board?: string | undefined;
-  /** Starts a shared board with this name. */
+  /** Starts a board with this name. */
   readonly newBoard?: string | undefined;
 }
 
@@ -168,30 +188,35 @@ interface BoardStorage {
     contents: string,
   ) => Effect.Effect<void, PlatformError.PlatformError>;
   readonly remove: (file: string) => Effect.Effect<void, PlatformError.PlatformError>;
+  /** The names of the files directly in the whiteboard folder. */
+  readonly list: Effect.Effect<ReadonlyArray<string>, PlatformError.PlatformError>;
 }
+
+/** The titles of the threads that still exist, by thread id. */
+type ThreadTitles = (
+  threadIds: ReadonlyArray<ThreadId>,
+) => Effect.Effect<Readonly<Record<string, string>>>;
 
 type BoardFailure = WhiteboardError | WhiteboardBoardRejected;
 
 export class Whiteboards extends Context.Service<
   Whiteboards,
   {
-    readonly get: (board: WhiteboardRef) => Effect.Effect<WhiteboardScene, BoardFailure>;
+    readonly get: (boardId: WhiteboardId) => Effect.Effect<WhiteboardScene, BoardFailure>;
     /** Merges a window's elements into the board. */
     readonly save: (
       input: WhiteboardSaveInput,
     ) => Effect.Effect<WhiteboardSaveResult, BoardFailure>;
     /** The current scene, then every later change and picture request for the board. */
-    readonly stream: (board: WhiteboardRef) => Stream.Stream<WhiteboardStreamEvent, BoardFailure>;
+    readonly stream: (boardId: WhiteboardId) => Stream.Stream<WhiteboardStreamEvent, BoardFailure>;
     /** One event each time an agent draws. */
     readonly activity: Stream.Stream<WhiteboardActivityEvent>;
     readonly submitSnapshot: (input: WhiteboardSnapshotInput) => Effect.Effect<void>;
-    /** The shared boards and each thread's choice of board, now and after every change. */
+    /** The boards and each thread's choice of board, now and after every change. */
     readonly directory: Stream.Stream<WhiteboardDirectory, WhiteboardError>;
-    readonly create: (
-      input: WhiteboardCreateInput,
-    ) => Effect.Effect<SharedWhiteboard, BoardFailure>;
+    readonly create: (input: WhiteboardCreateInput) => Effect.Effect<Whiteboard, BoardFailure>;
     readonly rename: (input: WhiteboardRenameInput) => Effect.Effect<void, BoardFailure>;
-    /** Deletes a shared board. Threads that showed it go back to their own. */
+    /** Deletes a board. Threads that showed it show none until they open or start another. */
     readonly remove: (input: WhiteboardDeleteInput) => Effect.Effect<void, BoardFailure>;
     /** Sets which board a thread's Whiteboard tab shows. */
     readonly select: (input: WhiteboardSelectInput) => Effect.Effect<void, BoardFailure>;
@@ -200,7 +225,7 @@ export class Whiteboards extends Context.Service<
       threadId: ThreadId,
       board?: string,
     ) => Effect.Effect<WhiteboardAgentView, WhiteboardError | WhiteboardUnknownBoard>;
-    /** Draws on a board, and shows that board in the agent's thread's Whiteboard tab. */
+    /** Draws on a board, starting one if need be, and shows it in the agent's thread's Whiteboard tab. */
     readonly edit: (
       threadId: ThreadId,
       target: WhiteboardAgentTarget,
@@ -233,35 +258,123 @@ export class Whiteboards extends Context.Service<
   }
 >()("t3/whiteboard/Whiteboards") {}
 
-const liveElementCount = (board: StoredBoard) =>
+const liveElementCount = (board: Pick<StoredBoard, "elements">) =>
   board.elements.filter((element) => element.isDeleted !== true).length;
 
-const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage) {
+const makeWith = Effect.fn("Whiteboards.make")(function* (
+  storage: BoardStorage,
+  threadTitles: ThreadTitles,
+) {
   const random = yield* SecureRandom.SecureRandom;
   const lock = yield* Semaphore.make(1);
+  const indexLoad = yield* Semaphore.make(1);
   const events = yield* PubSub.unbounded<{
-    readonly file: string;
+    readonly boardId: WhiteboardId;
     readonly event: WhiteboardStreamEvent;
   }>();
   const activity = yield* PubSub.unbounded<WhiteboardActivityEvent>();
   const directories = yield* PubSub.unbounded<WhiteboardDirectory>();
-  const boards = new Map<string, StoredBoard>();
-  const openTabs = new Map<string, number>();
+  const boards = new Map<WhiteboardId, StoredBoard>();
+  const openTabs = new Map<WhiteboardId, number>();
   const pictureRequests = new Map<string, Deferred.Deferred<WhiteboardPicture>>();
   let index: StoredIndex | null = null;
 
   const failed = (file: string, operation: "load" | "save") => (cause: unknown) =>
     new WhiteboardError({ board: file, operation, cause });
 
-  const loadIndex = Effect.fn("Whiteboards.loadIndex")(
-    function* () {
-      if (index !== null) return index;
-      const raw = yield* storage.read(INDEX_FILE);
-      index = raw === null ? EMPTY_INDEX : yield* decodeStoredIndex(raw);
-      return index;
-    },
-    Effect.mapError(failed(INDEX_FILE, "load")),
-  );
+  const store = Effect.fn("Whiteboards.store")(function* (
+    boardId: WhiteboardId,
+    next: StoredBoard,
+  ) {
+    const file = fileOf(boardId);
+    yield* storage.write(file, encodeStoredBoard(next)).pipe(Effect.mapError(failed(file, "save")));
+    boards.set(boardId, next);
+  });
+
+  /** `wanted`, or `wanted 2`, `wanted 3` and so on while boards already have those names. */
+  const freeNameLike = (taken: ReadonlyArray<Whiteboard>, wanted: string) => {
+    for (let count = 1; ; count += 1) {
+      const suffix = count === 1 ? "" : ` ${count}`;
+      const name = `${wanted.slice(0, WHITEBOARD_NAME_MAX_LENGTH - suffix.length).trimEnd()}${suffix}`;
+      if (!taken.some((board) => sameName(board.name, name))) return name;
+    }
+  };
+
+  const nameAfterThread = (taken: ReadonlyArray<Whiteboard>, title: string | undefined) =>
+    freeNameLike(taken, title?.trim() || UNTITLED_BOARD_NAME);
+
+  // Each thread once had a board of its own, in a file named after the thread. Each one that holds
+  // a drawing becomes an ordinary board named after its thread, which that thread goes on showing
+  // unless it had chosen another. A board's id comes from its old file's name, so a move that was
+  // cut short picks up where it stopped.
+  const adoptThreadBoards = Effect.fn("Whiteboards.adoptThreadBoards")(function* (
+    current: StoredIndex,
+  ) {
+    const files = yield* storage.list.pipe(Effect.mapError(failed(INDEX_FILE, "load")));
+    // The file's name is the thread's id with "_" for what a file name cannot hold, which in ids
+    // such as "mcp:…" is the colon. Whichever reading names a thread is the thread.
+    const threadBoards = files.flatMap((file) => {
+      const name = file.slice(0, -THREAD_BOARD_SUFFIX.length);
+      return file.endsWith(THREAD_BOARD_SUFFIX) && isThreadId(name)
+        ? [{ file, name, withColons: ThreadId.make(name.replaceAll("_", ":")) }]
+        : [];
+    });
+    if (threadBoards.length === 0) return current;
+    const titles = yield* threadTitles(
+      threadBoards.flatMap((board) => [board.name, board.withColons]),
+    );
+    const listed = [...current.boards];
+    const selected = { ...current.selected };
+    const adopted: Array<string> = [];
+    for (const { file, name, withColons } of threadBoards) {
+      const threadId = name in titles || !(withColons in titles) ? name : withColons;
+      const boardId = NodeCrypto.createHash("sha256").update(file).digest("hex").slice(0, 32);
+      const own = yield* storage.read(file).pipe(
+        Effect.flatMap((raw) => (raw === null ? Effect.succeed(null) : decodeThreadBoard(raw))),
+        Effect.catch((cause) =>
+          Effect.logWarning("Left a thread's whiteboard where it was: it could not be read.", {
+            file,
+            cause,
+          }).pipe(Effect.as(null)),
+        ),
+      );
+      if (own === null) continue;
+      adopted.push(file);
+      const moved = listed.some((board) => board.boardId === boardId);
+      if (moved || liveElementCount(own) === 0) continue;
+      yield* store(boardId, {
+        revision: own.revision,
+        elements: own.elements,
+        files: own.files,
+        ...(own.agentSeen === null ? {} : { seenBy: { [threadId]: own.agentSeen } }),
+      });
+      listed.push({ boardId, name: nameAfterThread(listed, titles[threadId]) });
+      selected[threadId] ??= boardId;
+    }
+    const next = { ...current, boards: listed, selected };
+    // The index goes before the old files do: until it lists a board, its old file is the drawing.
+    if (listed.length > current.boards.length) {
+      yield* storage
+        .write(INDEX_FILE, encodeStoredIndex(next))
+        .pipe(Effect.mapError(failed(INDEX_FILE, "save")));
+    }
+    for (const file of adopted) {
+      yield* storage.remove(file).pipe(Effect.mapError(failed(file, "save")));
+    }
+    return next;
+  });
+
+  // Reads run outside `lock`, so the first of them must not find the index half adopted.
+  const loadIndex = Effect.fn("Whiteboards.loadIndex")(function* () {
+    if (index !== null) return index;
+    const raw = yield* storage.read(INDEX_FILE).pipe(Effect.mapError(failed(INDEX_FILE, "load")));
+    const stored =
+      raw === null
+        ? EMPTY_INDEX
+        : yield* decodeStoredIndex(raw).pipe(Effect.mapError(failed(INDEX_FILE, "load")));
+    index = yield* adoptThreadBoards(stored);
+    return index;
+  }, indexLoad.withPermits(1));
 
   const toDirectory = (current: StoredIndex): WhiteboardDirectory => ({
     boards: current.boards,
@@ -276,50 +389,39 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
     yield* PubSub.publish(directories, toDirectory(next));
   });
 
-  const load = Effect.fn("Whiteboards.load")(function* (board: WhiteboardRef) {
-    const file = fileOf(board);
-    const cached = boards.get(file);
+  const load = Effect.fn("Whiteboards.load")(function* (boardId: WhiteboardId) {
+    const cached = boards.get(boardId);
     if (cached !== undefined) return cached;
+    const file = fileOf(boardId);
     const loaded = yield* storage.read(file).pipe(
       Effect.flatMap((raw) =>
         raw === null ? Effect.succeed(EMPTY_BOARD) : decodeStoredBoard(raw),
       ),
       Effect.mapError(failed(file, "load")),
     );
-    boards.set(file, loaded);
+    boards.set(boardId, loaded);
     return loaded;
   });
 
-  const store = Effect.fn("Whiteboards.store")(function* (board: WhiteboardRef, next: StoredBoard) {
-    const file = fileOf(board);
-    yield* storage.write(file, encodeStoredBoard(next)).pipe(Effect.mapError(failed(file, "save")));
-    boards.set(file, next);
-  });
-
-  /** Fails for a shared board that does not exist, so nothing reads or writes a stray file. */
-  const existing = Effect.fn("Whiteboards.existing")(function* (board: WhiteboardRef) {
-    if (board.kind === "thread") return board;
+  /** Fails for a board that does not exist, so nothing reads or writes a stray file. */
+  const existing = Effect.fn("Whiteboards.existing")(function* (boardId: WhiteboardId) {
     const current = yield* loadIndex();
-    if (current.boards.some((shared) => shared.boardId === board.boardId)) return board;
-    return yield* new WhiteboardBoardRejected({ reason: "not-found", board: board.boardId });
+    if (current.boards.some((board) => board.boardId === boardId)) return boardId;
+    return yield* new WhiteboardBoardRejected({ reason: "not-found", board: boardId });
   });
 
-  const selectedBoard = (current: StoredIndex, threadId: ThreadId): WhiteboardRef => {
+  /** The board a thread's Whiteboard tab shows, if the thread has opened or started one. */
+  const shownIn = (current: StoredIndex, threadId: ThreadId): WhiteboardId | null => {
     const boardId = current.selected[threadId];
-    return boardId !== undefined && current.boards.some((shared) => shared.boardId === boardId)
-      ? { kind: "shared", boardId }
-      : { kind: "thread", threadId };
+    return boardId !== undefined && current.boards.some((board) => board.boardId === boardId)
+      ? boardId
+      : null;
   };
 
-  const nameOf = (current: StoredIndex, board: WhiteboardRef) =>
-    board.kind === "thread"
-      ? THREAD_WHITEBOARD_NAME
-      : (current.boards.find((shared) => shared.boardId === board.boardId)?.name ?? board.boardId);
+  const nameOf = (current: StoredIndex, boardId: WhiteboardId) =>
+    current.boards.find((board) => board.boardId === boardId)?.name ?? boardId;
 
-  const namesOf = (current: StoredIndex) => [
-    THREAD_WHITEBOARD_NAME,
-    ...current.boards.map((shared) => shared.name),
-  ];
+  const namesOf = (current: StoredIndex) => current.boards.map((board) => board.name);
 
   /** The board an agent means: its thread's tab's board, unless it names another. */
   const named = Effect.fn("Whiteboards.named")(function* (
@@ -327,43 +429,34 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
     threadId: ThreadId,
     name: string | undefined,
   ) {
-    if (name === undefined) return selectedBoard(current, threadId);
-    if (sameName(name, THREAD_WHITEBOARD_NAME)) return { kind: "thread", threadId } as const;
-    const shared = current.boards.find((candidate) => sameName(candidate.name, name));
-    if (shared !== undefined) return { kind: "shared", boardId: shared.boardId } as const;
+    if (name === undefined) return shownIn(current, threadId);
+    const board = current.boards.find((candidate) => sameName(candidate.name, name));
+    if (board !== undefined) return board.boardId;
     return yield* new WhiteboardUnknownBoard({ board: name, boards: namesOf(current) });
   });
 
   const freeName = Effect.fn("Whiteboards.freeName")(function* (
     current: StoredIndex,
     name: string,
-    except?: SharedWhiteboardId,
+    except?: WhiteboardId,
   ) {
-    const taken =
-      sameName(name, THREAD_WHITEBOARD_NAME) ||
-      current.boards.some((shared) => shared.boardId !== except && sameName(shared.name, name));
+    const taken = current.boards.some(
+      (board) => board.boardId !== except && sameName(board.name, name),
+    );
     if (taken) return yield* new WhiteboardBoardRejected({ reason: "name-taken", board: name });
   });
 
-  // A thread's own board has one agent. A shared board keeps what each thread's agent saw.
-  const seenBy = (stored: StoredBoard, board: WhiteboardRef, threadId: ThreadId) =>
-    board.kind === "thread" ? stored.agentSeen : (stored.seenBy?.[threadId] ?? null);
-
   const withSeen = (
     stored: StoredBoard,
-    board: WhiteboardRef,
     threadId: ThreadId,
     seen: Readonly<Record<string, number>>,
-  ): StoredBoard =>
-    board.kind === "thread"
-      ? { ...stored, agentSeen: seen }
-      : { ...stored, seenBy: { ...stored.seenBy, [threadId]: seen } };
+  ): StoredBoard => ({ ...stored, seenBy: { ...stored.seenBy, [threadId]: seen } });
 
-  /** Points threads' tabs at boards, and remembers that their agents have yet to hear of it. */
+  /** Points a thread's tab at a board, or at none, and remembers whether its agent knows. */
   const withSelection = (
     current: StoredIndex,
     threadId: ThreadId,
-    boardId: SharedWhiteboardId | null,
+    boardId: WhiteboardId | null,
     told: boolean,
   ): StoredIndex => {
     const { [threadId]: _previous, ...others } = current.selected;
@@ -389,19 +482,19 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
   });
 
   const announce = (
-    board: WhiteboardRef,
+    boardId: WhiteboardId,
     stored: StoredBoard,
     editor: WhiteboardEditor,
     clientId: string | null,
-  ) => PubSub.publish(events, { file: fileOf(board), event: sceneEvent(stored, editor, clientId) });
+  ) => PubSub.publish(events, { boardId, event: sceneEvent(stored, editor, clientId) });
 
-  const get: Whiteboards["Service"]["get"] = Effect.fn("Whiteboards.get")(function* (board) {
-    const stored = yield* load(yield* existing(board));
-    return { board, revision: stored.revision, elements: stored.elements, files: stored.files };
+  const get: Whiteboards["Service"]["get"] = Effect.fn("Whiteboards.get")(function* (boardId) {
+    const stored = yield* load(yield* existing(boardId));
+    return { boardId, revision: stored.revision, elements: stored.elements, files: stored.files };
   });
 
   const save: Whiteboards["Service"]["save"] = Effect.fn("Whiteboards.save")(function* (input) {
-    const board = yield* load(yield* existing(input.board));
+    const board = yield* load(yield* existing(input.boardId));
     const merged = mergeWhiteboardElements(
       board.elements,
       input.elements,
@@ -415,27 +508,27 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
       elements: merged.elements,
       files: { ...board.files, ...Object.fromEntries(newFiles) },
     };
-    yield* store(input.board, next);
-    yield* announce(input.board, next, "user", input.clientId);
+    yield* store(input.boardId, next);
+    yield* announce(input.boardId, next, "user", input.clientId);
     return { revision: next.revision };
   }, lock.withPermits(1));
 
   // Subscribes before reading, so a change made during the read still arrives.
-  const stream: Whiteboards["Service"]["stream"] = (board) =>
+  const stream: Whiteboards["Service"]["stream"] = (boardId) =>
     Stream.callback<WhiteboardStreamEvent, BoardFailure>(
       (mailbox) =>
         Effect.gen(function* () {
-          const file = fileOf(yield* existing(board));
+          yield* existing(boardId);
           const subscription = yield* PubSub.subscribe(events);
           yield* Effect.acquireRelease(
-            Effect.sync(() => openTabs.set(file, (openTabs.get(file) ?? 0) + 1)),
-            () => Effect.sync(() => openTabs.set(file, (openTabs.get(file) ?? 1) - 1)),
+            Effect.sync(() => openTabs.set(boardId, (openTabs.get(boardId) ?? 0) + 1)),
+            () => Effect.sync(() => openTabs.set(boardId, (openTabs.get(boardId) ?? 1) - 1)),
           );
-          Queue.offerUnsafe(mailbox, sceneEvent(yield* load(board), null, null));
+          Queue.offerUnsafe(mailbox, sceneEvent(yield* load(boardId), null, null));
           yield* Stream.fromSubscription(subscription).pipe(
             Stream.runForEach((change) =>
               Effect.sync(() => {
-                if (change.file === file) Queue.offerUnsafe(mailbox, change.event);
+                if (change.boardId === boardId) Queue.offerUnsafe(mailbox, change.event);
               }),
             ),
             Effect.forkScoped,
@@ -473,15 +566,25 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
     });
   });
 
+  /** Starts a board under `name`, or under a name after `threadId`'s thread when it has none. */
   const addBoard = Effect.fn("Whiteboards.addBoard")(function* (
     current: StoredIndex,
-    name: string,
+    name: string | undefined,
+    threadId: ThreadId | undefined,
     contents: StoredBoard,
   ) {
-    yield* freeName(current, name);
-    const shared: SharedWhiteboard = { boardId: yield* random.uuidV4(), name };
-    yield* store({ kind: "shared", boardId: shared.boardId }, contents);
-    return { shared, index: { ...current, boards: [...current.boards, shared] } };
+    if (name !== undefined) yield* freeName(current, name);
+    const board: Whiteboard = {
+      boardId: yield* random.uuidV4(),
+      name:
+        name ??
+        nameAfterThread(
+          current.boards,
+          threadId === undefined ? undefined : (yield* threadTitles([threadId]))[threadId],
+        ),
+    };
+    yield* store(board.boardId, contents);
+    return { board, index: { ...current, boards: [...current.boards, board] } };
   });
 
   const create: Whiteboards["Service"]["create"] = Effect.fn("Whiteboards.create")(function* (
@@ -491,30 +594,29 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
     const source =
       input.copyOf === undefined ? EMPTY_BOARD : yield* load(yield* existing(input.copyOf));
     const elements = source.elements.filter((element) => element.isDeleted !== true);
-    const added = yield* addBoard(current, input.name, {
+    const added = yield* addBoard(current, input.name, input.threadId, {
       revision: elements.length === 0 ? 0 : 1,
       elements,
       files: source.files,
-      agentSeen: null,
     });
     yield* storeIndex(
       input.threadId === undefined
         ? added.index
-        : withSelection(added.index, input.threadId, added.shared.boardId, false),
+        : withSelection(added.index, input.threadId, added.board.boardId, false),
     );
-    return added.shared;
+    return added.board;
   }, lock.withPermits(1));
 
   const rename: Whiteboards["Service"]["rename"] = Effect.fn("Whiteboards.rename")(function* (
     input,
   ) {
     const current = yield* loadIndex();
-    yield* existing({ kind: "shared", boardId: input.boardId });
+    yield* existing(input.boardId);
     yield* freeName(current, input.name, input.boardId);
     yield* storeIndex({
       ...current,
-      boards: current.boards.map((shared) =>
-        shared.boardId === input.boardId ? { ...shared, name: input.name } : shared,
+      boards: current.boards.map((board) =>
+        board.boardId === input.boardId ? { ...board, name: input.name } : board,
       ),
     });
   }, lock.withPermits(1));
@@ -522,21 +624,21 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
   const remove: Whiteboards["Service"]["remove"] = Effect.fn("Whiteboards.remove")(function* (
     input,
   ) {
-    const board = yield* existing({ kind: "shared", boardId: input.boardId });
+    yield* existing(input.boardId);
     const current = yield* loadIndex();
     const showing = Object.keys(current.selected).filter(
       (threadId) => current.selected[threadId] === input.boardId,
     );
     // The index goes first: a board left on disk without an entry is only an unused file.
     yield* storeIndex({
-      boards: current.boards.filter((shared) => shared.boardId !== input.boardId),
+      boards: current.boards.filter((board) => board.boardId !== input.boardId),
       selected: Object.fromEntries(
         Object.entries(current.selected).filter(([, boardId]) => boardId !== input.boardId),
       ),
       unannounced: [...new Set([...current.unannounced, ...showing])],
     });
-    const file = fileOf(board);
-    boards.delete(file);
+    const file = fileOf(input.boardId);
+    boards.delete(input.boardId);
     yield* storage.remove(file).pipe(Effect.mapError(failed(file, "save")));
   }, lock.withPermits(1));
 
@@ -544,13 +646,8 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
     input,
   ) {
     const current = yield* loadIndex();
-    if (input.boardId !== null) yield* existing({ kind: "shared", boardId: input.boardId });
-    const before = selectedBoard(current, input.threadId);
-    const after: WhiteboardRef =
-      input.boardId === null
-        ? { kind: "thread", threadId: input.threadId }
-        : { kind: "shared", boardId: input.boardId };
-    if (fileOf(before) === fileOf(after)) return;
+    yield* existing(input.boardId);
+    if (shownIn(current, input.threadId) === input.boardId) return;
     yield* storeIndex(withSelection(current, input.threadId, input.boardId, false));
   }, lock.withPermits(1));
 
@@ -569,24 +666,21 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
     name,
   ) {
     const current = yield* loadIndex();
-    const board = yield* named(current, threadId, name);
-    const stored = yield* load(board);
-    const seen = seenBy(stored, board, threadId);
-    // A board this agent never saw has nothing to compare against, unless it is the thread's own,
-    // where everything on it is the user's.
-    const changes =
-      seen === null && (board.kind === "shared" || liveElementCount(stored) === 0)
-        ? null
-        : whiteboardChangesSince(seen, stored.elements);
-    if (changes !== null || seen === null) {
-      yield* store(
-        board,
-        withSeen(stored, board, threadId, whiteboardSeenVersions(stored.elements)),
-      );
+    const boardId = yield* named(current, threadId, name);
+    if (boardId === null) {
+      yield* told(threadId);
+      return { board: null, boards: namesOf(current), revision: 0, elements: [], changes: null };
     }
-    if (fileOf(board) === fileOf(selectedBoard(current, threadId))) yield* told(threadId);
+    const stored = yield* load(boardId);
+    const seen = stored.seenBy?.[threadId] ?? null;
+    // A board this agent never saw has nothing to compare against.
+    const changes = seen === null ? null : whiteboardChangesSince(seen, stored.elements);
+    if (changes !== null || seen === null) {
+      yield* store(boardId, withSeen(stored, threadId, whiteboardSeenVersions(stored.elements)));
+    }
+    if (boardId === shownIn(current, threadId)) yield* told(threadId);
     return {
-      board: nameOf(current, board),
+      board: nameOf(current, boardId),
       boards: namesOf(current),
       revision: stored.revision,
       elements: describeWhiteboard(stored.elements),
@@ -600,8 +694,18 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
     change,
   ) {
     const before = yield* loadIndex();
-    const startsBoard = target.newBoard !== undefined;
-    const existingBoard = startsBoard ? null : yield* named(before, threadId, target.board);
+    const newName =
+      target.newBoard === undefined
+        ? undefined
+        : Option.getOrNull(decodeBoardName(target.newBoard));
+    if (newName === null) {
+      return yield* new WhiteboardEditRejected({
+        problems: [`newBoard: a board's name has 1 to ${WHITEBOARD_NAME_MAX_LENGTH} characters.`],
+      });
+    }
+    // No board yet: the agent asked for a new one, or its thread's tab shows none.
+    const existingBoard =
+      newName === undefined ? yield* named(before, threadId, target.board) : null;
     const stored = existingBoard === null ? EMPTY_BOARD : yield* load(existingBoard);
     const outcome = applyWhiteboardEdit(stored.elements, change, {
       now: yield* Clock.currentTimeMillis,
@@ -610,18 +714,16 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
     });
     if (!outcome.ok) return yield* new WhiteboardEditRejected({ problems: outcome.problems });
     // An invalid drawing must not leave an empty board behind, so the board starts only now.
-    const added = startsBoard ? yield* addBoard(before, target.newBoard, EMPTY_BOARD) : null;
-    const board: WhiteboardRef = existingBoard ?? {
-      kind: "shared",
-      boardId: added!.shared.boardId,
-    };
+    const added =
+      existingBoard === null ? yield* addBoard(before, newName, threadId, EMPTY_BOARD) : null;
+    const boardId = existingBoard ?? added!.board.boardId;
     const current = added?.index ?? before;
     // Only what this edit touched counts as seen, so changes the agent has not seen still get reported.
     const versions = new Map(stored.elements.map((element) => [element.id, element.version]));
     const touched = outcome.elements.filter(
       (element) => versions.get(element.id) !== element.version,
     );
-    const seen = { ...seenBy(stored, board, threadId) };
+    const seen = { ...stored.seenBy?.[threadId] };
     for (const element of touched) {
       if (typeof element.id !== "string") continue;
       if (element.isDeleted === true) delete seen[element.id];
@@ -636,24 +738,18 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
         ? stored
         : withSeen(
             { ...stored, revision: stored.revision + 1, elements: outcome.elements },
-            board,
             threadId,
             seen,
           );
-    if (next !== stored) yield* store(board, next);
+    if (next !== stored) yield* store(boardId, next);
     // The user has to see what was drawn, so the thread's tab follows the agent to this board.
-    const shown = withSelection(
-      current,
-      threadId,
-      board.kind === "shared" ? board.boardId : null,
-      true,
-    );
-    const moved = fileOf(selectedBoard(current, threadId)) !== fileOf(board);
+    const shown = withSelection(current, threadId, boardId, true);
+    const moved = shownIn(current, threadId) !== boardId;
     if (added !== null || moved || current.unannounced.includes(threadId)) {
       yield* storeIndex(shown);
     }
     if (next !== stored) {
-      yield* announce(board, next, "agent", null);
+      yield* announce(boardId, next, "agent", null);
       yield* PubSub.publish(activity, {
         threadId,
         revision: next.revision,
@@ -661,7 +757,7 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
       });
     }
     return {
-      board: nameOf(shown, board),
+      board: nameOf(shown, boardId),
       revision: next.revision,
       addedIds: outcome.addedIds,
       layoutWarnings,
@@ -671,19 +767,21 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
   const picture: Whiteboards["Service"]["picture"] = Effect.fn("Whiteboards.picture")(
     function* (threadId, name) {
       const current = yield* loadIndex();
-      const board = yield* named(current, threadId, name);
-      const file = fileOf(board);
-      const stored = yield* load(board);
+      const boardId = yield* named(current, threadId, name);
+      if (boardId === null) {
+        return yield* new WhiteboardPictureUnavailable({ reason: "no-board" });
+      }
+      const stored = yield* load(boardId);
       if (liveElementCount(stored) === 0) {
         return yield* new WhiteboardPictureUnavailable({ reason: "empty" });
       }
-      if ((openTabs.get(file) ?? 0) === 0) {
+      if ((openTabs.get(boardId) ?? 0) === 0) {
         return yield* new WhiteboardPictureUnavailable({ reason: "not-open" });
       }
       const requestId = yield* random.uuidV4();
       const request = yield* Deferred.make<WhiteboardPicture>();
       pictureRequests.set(requestId, request);
-      yield* PubSub.publish(events, { file, event: { type: "snapshot-request", requestId } });
+      yield* PubSub.publish(events, { boardId, event: { type: "snapshot-request", requestId } });
       const drawn = yield* Deferred.await(request).pipe(
         Effect.timeoutOption(SNAPSHOT_TIMEOUT),
         Effect.ensuring(Effect.sync(() => pictureRequests.delete(requestId))),
@@ -691,7 +789,7 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
       if (Option.isNone(drawn)) {
         return yield* new WhiteboardPictureUnavailable({ reason: "timed-out" });
       }
-      return { ...drawn.value, board: nameOf(current, board), revision: stored.revision };
+      return { ...drawn.value, board: nameOf(current, boardId), revision: stored.revision };
     },
   );
 
@@ -699,20 +797,30 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
     "Whiteboards.takeUserChangeNote",
   )(function* (threadId) {
     const current = yield* loadIndex();
-    const board = selectedBoard(current, threadId);
-    const stored = yield* load(board);
-    const sharedName = board.kind === "shared" ? nameOf(current, board) : null;
+    const boardId = shownIn(current, threadId);
+    const moved = current.unannounced.includes(threadId);
+    if (boardId === null) {
+      if (!moved) return null;
+      yield* told(threadId);
+      return whiteboardSwitchNote(null);
+    }
+    const stored = yield* load(boardId);
+    const name = nameOf(current, boardId);
     const seeAll = () =>
-      store(board, withSeen(stored, board, threadId, whiteboardSeenVersions(stored.elements)));
-    if (current.unannounced.includes(threadId)) {
+      store(boardId, withSeen(stored, threadId, whiteboardSeenVersions(stored.elements)));
+    if (moved) {
       yield* seeAll();
       yield* told(threadId);
-      return whiteboardSwitchNote(sharedName, stored.revision, liveElementCount(stored));
+      return whiteboardSwitchNote({
+        name,
+        revision: stored.revision,
+        elementCount: liveElementCount(stored),
+      });
     }
-    const changes = whiteboardChangesSince(seenBy(stored, board, threadId), stored.elements);
+    const changes = whiteboardChangesSince(stored.seenBy?.[threadId] ?? null, stored.elements);
     if (changes === null) return null;
     yield* seeAll();
-    return whiteboardChangeNote(changes, stored.revision, sharedName);
+    return whiteboardChangeNote(changes, stored.revision, name);
   }, lock.withPermits(1));
 
   return Whiteboards.of({
@@ -734,8 +842,7 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (storage: BoardStorage)
 });
 
 // One JSON file per board under T3 home, not a SQLite table: this fork rebases onto upstream,
-// and a fork-owned migration id would collide with the next one upstream adds. A thread's own
-// board is named after the thread; shared boards and their index sit in `shared/`.
+// and a fork-owned migration id would collide with the next one upstream adds.
 export const layer = Layer.effect(
   Whiteboards,
   Effect.gen(function* () {
@@ -743,31 +850,49 @@ export const layer = Layer.effect(
     const path = yield* Path.Path;
     const { stateDir } = yield* ServerConfig.ServerConfig;
     const platform = yield* HostProcess.Platform;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
     const pathOf = (file: string) => path.join(stateDir, "whiteboards", file);
     const missing = (error: PlatformError.PlatformError) => error.reason._tag === "NotFound";
-    return yield* makeWith({
-      read: (file) =>
-        fs.readFileString(pathOf(file)).pipe(Effect.catchIf(missing, () => Effect.succeed(null))),
-      write: (file, contents) =>
-        writeFileStringAtomically({ filePath: pathOf(file), contents }).pipe(
-          Effect.provideService(FileSystem.FileSystem, fs),
-          Effect.provideService(Path.Path, path),
-          Effect.provideService(HostProcess.Platform, platform),
-        ),
-      remove: (file) => fs.remove(pathOf(file)).pipe(Effect.catchIf(missing, () => Effect.void)),
-    });
+    return yield* makeWith(
+      {
+        read: (file) =>
+          fs.readFileString(pathOf(file)).pipe(Effect.catchIf(missing, () => Effect.succeed(null))),
+        write: (file, contents) =>
+          writeFileStringAtomically({ filePath: pathOf(file), contents }).pipe(
+            Effect.provideService(FileSystem.FileSystem, fs),
+            Effect.provideService(Path.Path, path),
+            Effect.provideService(HostProcess.Platform, platform),
+          ),
+        remove: (file) => fs.remove(pathOf(file)).pipe(Effect.catchIf(missing, () => Effect.void)),
+        list: fs
+          .readDirectory(pathOf(""))
+          .pipe(Effect.catchIf(missing, () => Effect.succeed<ReadonlyArray<string>>([]))),
+      },
+      // A board still gets a name when its thread's title cannot be read.
+      (threadIds) => projections.getThreadTitles(threadIds).pipe(Effect.orElseSucceed(() => ({}))),
+    );
   }),
-);
+).pipe(Layer.provide(ProjectionStore.layer));
 
-/** Boards that live only as long as the process, for tests. */
-export const layerMemory = Layer.effect(
-  Whiteboards,
-  Effect.suspend(() => {
-    const files = new Map<string, string>();
-    return makeWith({
-      read: (file) => Effect.succeed(files.get(file) ?? null),
-      write: (file, contents) => Effect.sync(() => void files.set(file, contents)),
-      remove: (file) => Effect.sync(() => void files.delete(file)),
-    });
-  }),
-).pipe(Layer.provide(SecureRandom.layerWebCrypto));
+/** Boards that live only as long as the process, for tests. `files` is what the folder holds at first. */
+export const layerMemoryWith = (input: {
+  readonly files?: Readonly<Record<string, string>>;
+  readonly threadTitles?: Readonly<Record<string, string>>;
+}) =>
+  Layer.effect(
+    Whiteboards,
+    Effect.suspend(() => {
+      const files = new Map(Object.entries(input.files ?? {}));
+      return makeWith(
+        {
+          read: (file) => Effect.succeed(files.get(file) ?? null),
+          write: (file, contents) => Effect.sync(() => void files.set(file, contents)),
+          remove: (file) => Effect.sync(() => void files.delete(file)),
+          list: Effect.sync(() => [...files.keys()].filter((file) => !file.includes("/"))),
+        },
+        () => Effect.succeed(input.threadTitles ?? {}),
+      );
+    }),
+  ).pipe(Layer.provide(SecureRandom.layerWebCrypto));
+
+export const layerMemory = layerMemoryWith({});
