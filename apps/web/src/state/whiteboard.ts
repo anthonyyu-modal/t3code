@@ -8,8 +8,8 @@ import { connectionAtomRuntime } from "../connection/runtime";
 export const whiteboardEnvironment = createWhiteboardEnvironmentAtoms(connectionAtomRuntime);
 
 /**
- * The environment's shared boards and each thread's choice of board. `unavailable` means the
- * server could not give them and never has, as a server from before shared boards cannot.
+ * The environment's boards and each thread's choice of board. `unavailable` means the server
+ * could not give them and never has, as a server from before boards were shared cannot.
  */
 export function useWhiteboardDirectory(
   environmentId: EnvironmentId,
