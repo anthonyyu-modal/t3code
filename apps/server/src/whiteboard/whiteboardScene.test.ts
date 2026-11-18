@@ -294,9 +294,11 @@ describe("whiteboardChangesSince", () => {
       changed: ['rectangle "Plain inbox" (id plain)'],
       removed: ['ellipse "Trace" (id trace)'],
     });
-    expect(whiteboardChangeNote(changes ?? { added: [], changed: [], removed: [] }, 4, null)).toBe(
+    expect(
+      whiteboardChangeNote(changes ?? { added: [], changed: [], removed: [] }, 4, "Flow"),
+    ).toBe(
       [
-        "The user changed this thread's whiteboard since you last saw it (now revision 4).",
+        'The whiteboard "Flow", which this thread\'s Whiteboard tab shows, changed since you last saw it (now revision 4).',
         'Added: text "why two hops?" (id note).',
         'Changed: rectangle "Plain inbox" (id plain).',
         'Removed: ellipse "Trace" (id trace).',
