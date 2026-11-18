@@ -63,10 +63,10 @@ const WhiteboardReadTool = Tool.make("whiteboard_read", {
   ...shared,
   failureMode: "return",
   description:
-    "Read the whiteboard, an Excalidraw board in the user's right panel that you both draw on. Returns every element (id, type, box, text, arrow ends) and what changed since you last looked. Freehand strokes and images are only listed; whiteboard_view shows them. boards names this thread's own board and the shared ones every thread can open.",
+    "Read the whiteboard, an Excalidraw board in the user's right panel that you both draw on. Returns every element (id, type, box, text, arrow ends) and what changed since you last looked. Freehand strokes and images are only listed; whiteboard_view shows them. boards names every board; all threads share them. board is null while this thread's tab shows none.",
   parameters: Schema.Struct(Board),
   success: Schema.Struct({
-    board: Schema.String,
+    board: Schema.NullOr(Schema.String),
     boards: Schema.Array(Schema.String),
     revision: Schema.Int,
     elements: Schema.Array(ElementView),
@@ -84,7 +84,7 @@ const WhiteboardReadTool = Tool.make("whiteboard_read", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false)
-  // Each acts on the calling thread's board, so only T3's own agents are offered it.
+  // Each acts as the calling thread, so only T3's own agents are offered it.
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 // A board is no part of the workspace, so read-only sandboxes and plan mode may draw.
@@ -92,12 +92,13 @@ const WhiteboardEditTool = Tool.make("whiteboard_edit", {
   ...shared,
   failureMode: "return",
   description:
-    "Draw on the whiteboard. The user sees it at once: their Whiteboard tab opens and shows the board you drew on. One call may clear, remove, update and add, in that order; if any part is invalid nothing changes. Units are canvas pixels with y downward. Leave 80 between shapes, and 220 where a labelled arrow runs between them. Call whiteboard_read first and build around what is there.",
+    "Draw on the whiteboard. The user sees it at once: their Whiteboard tab opens and shows the board you drew on. One call may clear, remove, update and add, in that order; if any part is invalid nothing changes. Units are canvas pixels with y downward. Leave 80 between shapes, and 220 where a labelled arrow runs between them. Call whiteboard_read first and build around what is there. While this thread's tab shows no board, pass newBoard.",
   parameters: Schema.Struct({
     ...Board,
     newBoard: Schema.optional(
       Schema.String.annotate({
-        description: "Instead of board: start a shared board with this name and draw on it.",
+        description:
+          "Instead of board: start a board with this name, a few words for the drawing, and draw on it.",
       }),
     ),
     clear: Schema.optional(Schema.Boolean.annotate({ description: "Remove everything first." })),
@@ -159,7 +160,7 @@ const WhiteboardEditTool = Tool.make("whiteboard_edit", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, false)
-  // Each acts on the calling thread's board, so only T3's own agents are offered it.
+  // Each acts as the calling thread, so only T3's own agents are offered it.
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 export const WhiteboardViewTool = Tool.make("whiteboard_view", {
@@ -183,7 +184,7 @@ export const WhiteboardViewTool = Tool.make("whiteboard_view", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false)
-  // Each acts on the calling thread's board, so only T3's own agents are offered it.
+  // Each acts as the calling thread, so only T3's own agents are offered it.
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 export const WhiteboardDataToolkit = Toolkit.make(WhiteboardReadTool, WhiteboardEditTool);

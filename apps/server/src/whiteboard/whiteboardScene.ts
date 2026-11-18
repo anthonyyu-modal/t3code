@@ -357,16 +357,13 @@ const listed = (labels: ReadonlyArray<string>) =>
     ? labels.join("; ")
     : `${labels.slice(0, LABEL_LIST_LIMIT).join("; ")}; and ${labels.length - LABEL_LIST_LIMIT} more`;
 
-/** `sharedName` is the board's name when every thread can draw on it, `null` for the thread's own. */
 export function whiteboardChangeNote(
   changes: WhiteboardChanges,
   revision: number,
-  sharedName: string | null,
+  boardName: string,
 ): string {
   return [
-    sharedName === null
-      ? `The user changed this thread's whiteboard since you last saw it (now revision ${revision}).`
-      : `The shared whiteboard "${sharedName}", which this thread's Whiteboard tab shows, changed since you last saw it (now revision ${revision}).`,
+    `The whiteboard "${boardName}", which this thread's Whiteboard tab shows, changed since you last saw it (now revision ${revision}).`,
     ...(changes.added.length > 0 ? [`Added: ${listed(changes.added)}.`] : []),
     ...(changes.changed.length > 0 ? [`Changed: ${listed(changes.changed)}.`] : []),
     ...(changes.removed.length > 0 ? [`Removed: ${listed(changes.removed)}.`] : []),
@@ -374,19 +371,24 @@ export function whiteboardChangeNote(
   ].join("\n");
 }
 
-/** Tells an agent that its thread's Whiteboard tab now shows a different board. */
+/** Tells an agent which board its thread's Whiteboard tab shows now; `null` when that board was deleted. */
 export function whiteboardSwitchNote(
-  sharedName: string | null,
-  revision: number,
-  elementCount: number,
+  shown: {
+    readonly name: string;
+    readonly revision: number;
+    readonly elementCount: number;
+  } | null,
 ): string {
-  const board =
-    sharedName === null
-      ? "this thread's own board"
-      : `the shared board "${sharedName}", which other threads can also draw on`;
-  const holds = elementCount === 0 ? "It is empty." : `It holds ${elementCount} elements.`;
+  if (shown === null) {
+    return [
+      "The board this thread's Whiteboard tab showed was deleted, so the tab shows no board now.",
+      "whiteboard_edit starts a new board, or draws on one you name with board.",
+    ].join("\n");
+  }
+  const holds =
+    shown.elementCount === 0 ? "It is empty." : `It holds ${shown.elementCount} elements.`;
   return [
-    `The user switched this thread's Whiteboard tab to ${board} (revision ${revision}). ${holds}`,
+    `This thread's Whiteboard tab now shows the board "${shown.name}" (revision ${shown.revision}). ${holds}`,
     "The whiteboard tools now act on this board. Call whiteboard_read before you draw on it.",
   ].join("\n");
 }
