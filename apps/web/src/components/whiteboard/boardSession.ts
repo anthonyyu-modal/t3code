@@ -8,8 +8,8 @@ import type { AppState, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/t
 import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import type {
   EnvironmentId,
-  WhiteboardRef,
   WhiteboardFiles,
+  WhiteboardId,
   WhiteboardSceneEvent,
   WhiteboardStreamEvent,
 } from "@t3tools/contracts";
@@ -60,7 +60,7 @@ export function openBoardSession(input: {
   readonly board: ExcalidrawImperativeAPI;
   readonly environmentId: EnvironmentId;
   /** Which of the server's boards this window draws on. */
-  readonly target: WhiteboardRef;
+  readonly target: WhiteboardId;
   readonly onSaveFailed: (failed: boolean) => void;
 }): BoardSession {
   const { board, environmentId, target, onSaveFailed } = input;
@@ -113,7 +113,7 @@ export function openBoardSession(input: {
     const result = await runAtomCommand(
       appAtomRegistry,
       whiteboardEnvironment.save,
-      { environmentId, input: { board: target, clientId, elements: sent, files } },
+      { environmentId, input: { boardId: target, clientId, elements: sent, files } },
       QUIET,
     );
     saving = false;
@@ -140,7 +140,7 @@ export function openBoardSession(input: {
     const result = await runAtomCommand(
       appAtomRegistry,
       whiteboardEnvironment.get,
-      { environmentId, input: { board: target } },
+      { environmentId, input: { boardId: target } },
       QUIET,
     );
     return result._tag === "Success" ? result.value : null;
@@ -250,7 +250,7 @@ export function openBoardSession(input: {
   };
 
   const unsubscribe = appAtomRegistry.subscribe(
-    whiteboardEnvironment.events({ environmentId, input: { board: target } }),
+    whiteboardEnvironment.events({ environmentId, input: { boardId: target } }),
     (result) => {
       const event = AsyncResult.getOrElse(result, () => null);
       if (event === null || event === lastEvent) return;
