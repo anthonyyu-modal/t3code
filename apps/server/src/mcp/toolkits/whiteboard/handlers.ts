@@ -1,6 +1,7 @@
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
+import * as WhiteboardPictures from "../../../whiteboard/WhiteboardPictures.ts";
 import * as Whiteboards from "../../../whiteboard/Whiteboards.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -42,8 +43,9 @@ const handlers = {
   ),
   whiteboard_view: McpToolAccess.readsAsCaller((input) =>
     Effect.gen(function* () {
-      const { threadId, whiteboards } = yield* callerBoard("whiteboard_view");
-      const { board, revision, ...screenshot } = yield* whiteboards
+      const { threadId } = yield* callerBoard("whiteboard_view");
+      const pictures = yield* WhiteboardPictures.WhiteboardPictures;
+      const { board, revision, ...screenshot } = yield* pictures
         .picture(threadId, input.board)
         .pipe(Effect.mapError(toFailure));
       return { board, revision, screenshot };

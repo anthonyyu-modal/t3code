@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 import { McpSchema, Tool, Toolkit } from "effect/ai";
 
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as WhiteboardPictures from "../../../whiteboard/WhiteboardPictures.ts";
 import * as Whiteboards from "../../../whiteboard/Whiteboards.ts";
 import { WHITEBOARD_ADD_TYPES } from "../../../whiteboard/whiteboardScene.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -165,8 +166,9 @@ const WhiteboardEditTool = Tool.make("whiteboard_edit", {
 
 export const WhiteboardViewTool = Tool.make("whiteboard_view", {
   ...shared,
+  dependencies: [...shared.dependencies, WhiteboardPictures.WhiteboardPictures],
   description:
-    "See the whiteboard as a PNG, as the user sees it, including freehand strokes and pasted images. Needs a Whiteboard tab that shows the board to be open.",
+    "See the whiteboard as a PNG, as the user sees it, including freehand strokes and pasted images. Works whether or not a window has the board open.",
   parameters: Schema.Struct(Board),
   success: Schema.Struct({
     board: Schema.String,
