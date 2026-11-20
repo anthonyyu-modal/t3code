@@ -49,4 +49,19 @@ describe("isWhiteboardKey", () => {
       outside.remove();
     }
   });
+
+  it("lets Drawnix handle bold, italic, underline, and redo without changing Excalidraw", () => {
+    const drawnix = document.body.appendChild(document.createElement("div"));
+    drawnix.setAttribute("data-whiteboard-keys", "");
+    drawnix.setAttribute("data-drawnix-keys", "");
+    const editor = drawnix.appendChild(document.createElement("div"));
+    try {
+      for (const key of ["b", "i", "u", "y"]) {
+        expect(isWhiteboardKey(keydown(editor, { key, metaKey: true }), "MacIntel")).toBe(true);
+        expect(isWhiteboardKey(keydown(editor, { key, ctrlKey: true }), "Linux x86_64")).toBe(true);
+      }
+    } finally {
+      drawnix.remove();
+    }
+  });
 });

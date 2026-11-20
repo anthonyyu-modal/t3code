@@ -85,6 +85,8 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof WS_METHODS.subscribeWhiteboard
   | typeof WS_METHODS.subscribeWhiteboardActivity
   | typeof WS_METHODS.subscribeWhiteboardDirectory
+  | typeof WS_METHODS.subscribeDiagram
+  | typeof WS_METHODS.subscribeDiagramDirectory
   | typeof WS_METHODS.subscribeProjectClones
   | typeof WS_METHODS.terminalAttach
   | typeof WS_METHODS.terminalObserve;

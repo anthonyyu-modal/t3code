@@ -571,6 +571,10 @@
       "types": "./src/state/whiteboard.ts",
       "default": "./src/state/whiteboard.ts"
     },
+    "./state/diagram": {
+      "types": "./src/state/diagram.ts",
+      "default": "./src/state/diagram.ts"
+    },
     "./source-control-clients": {
       "types": "./src/sourceControlClients.ts",
       "default": "./src/sourceControlClients.ts"

@@ -27,6 +27,7 @@ import { PullRequestDetailPanel } from "../pullRequest/PullRequestDetailPanel";
 import { PullRequestDetailGhost } from "../pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel";
+import { DiagramSlot } from "../diagram/liveDiagrams";
 import { WhiteboardSlot } from "../whiteboard/liveBoards";
 
 const PreviewPanel = lazy(() =>
@@ -215,6 +216,10 @@ export function RightPanelSurfaceContent(props: {
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
     case "whiteboard":
       return <WhiteboardSlot threadRef={threadRef} />;
+    case "drawio":
+      return <DiagramSlot engine="drawio" threadRef={threadRef} />;
+    case "drawnix":
+      return <DiagramSlot engine="drawnix" threadRef={threadRef} />;
     case "side-chat":
       // Not lazy: revealing a suspended tiptap editor tears down its view and crashes the composer.
       return (

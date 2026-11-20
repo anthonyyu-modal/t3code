@@ -238,6 +238,25 @@
           ]
         }
       ]
+    },
+    {
+      "bundles": ["desktop", "web"],
+      "license": "Apache-2.0",
+      "name": "draw.io",
+      "version": "32.7.4",
+      "sourceUrl": "https://github.com/jgraph/drawio",
+      "generatedNotices": [
+        {
+          "licenseId": "Apache-2.0",
+          "copyrights": [
+            "Copyright (c) 2006-2026 JGraph Holdings Ltd",
+            "Copyright (c) 2006-2026 draw.io AG"
+          ],
+          "preamble": [
+            "Bundled offline static web application from jgraph/drawio v32.7.4. Source code is Apache-2.0; icon sets, stencil libraries, and templates are subject to jgraph/drawio's README Atlassian restriction."
+          ]
+        }
+      ]
     }
   ],
   "packageOverrides": [
@@ -1101,6 +1120,76 @@
       "generatedNotice": {
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2022 WorkOS"]
+      }
+    },
+    {
+      "name": "@drawnix/drawnix",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/plait-board/drawnix",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2024-2025 Drawnix"]
+      }
+    },
+    {
+      "name": "@plait-board/react-board",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/plait-board/drawnix",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2024-2025 Drawnix"]
+      }
+    },
+    {
+      "name": "@plait-board/react-text",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/plait-board/drawnix",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2024-2025 Drawnix"]
+      }
+    },
+    {
+      "name": "@plait-board/markdown-to-drawnix",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/plait-board/markdown-to-drawnix",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Drawnix"]
+      }
+    },
+    {
+      "name": "@plait-board/mermaid-to-drawnix",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/plait-board/mermaid-to-drawnix",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2025 Drawnix"]
+      }
+    },
+    {
+      "repositoryUrl": "https://github.com/worktile/plait",
+      "license": "MIT",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2022-2025 Worktile"]
+      }
+    },
+    {
+      "name": "ahooks",
+      "license": "MIT",
+      "sourceUrl": "https://github.com/alibaba/hooks",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2019-present Alibaba"]
+      }
+    },
+    {
+      "repositoryUrl": "https://github.com/ianstormtaylor/slate",
+      "license": "MIT",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": ["Copyright (c) 2016-present Ian Storm Taylor"]
       }
     }
   ]

@@ -48,18 +48,29 @@ const CHORDS = [
 // Excalidraw moves a shape to the front or back with a different modifier on macOS.
 const MAC_CHORDS = ["mod+alt+[", "mod+alt+]"];
 const OTHER_CHORDS = ["mod+shift+[", "mod+shift+]"];
+// Drawnix's embedded Slate text editor uses standard rich-text and redo chords.
+const DRAWNIX_CHORDS = ["mod+b", "mod+i", "mod+u", "mod+y"];
 
 const compile = (chords: ReadonlyArray<string>) =>
   chords.flatMap((chord) => parseKeybindingShortcut(chord) ?? []);
 const SHORTCUTS = compile(CHORDS);
 const MAC_SHORTCUTS = compile(MAC_CHORDS);
 const OTHER_SHORTCUTS = compile(OTHER_CHORDS);
+const DRAWNIX_SHORTCUTS = compile(DRAWNIX_CHORDS);
 
 export function isWhiteboardTarget(target: EventTarget | null | undefined): boolean {
   return (
     typeof Element !== "undefined" &&
     target instanceof Element &&
     target.closest("[data-whiteboard-keys]") !== null
+  );
+}
+
+function isDrawnixTarget(target: EventTarget | null | undefined): boolean {
+  return (
+    typeof Element !== "undefined" &&
+    target instanceof Element &&
+    target.closest("[data-drawnix-keys]") !== null
   );
 }
 
@@ -75,7 +86,8 @@ export function isWhiteboardKey(
   if (!isWhiteboardTarget(event.target)) return false;
   if (!event.metaKey && !event.ctrlKey) return !/^f\d+$/i.test(event.key);
   const platformShortcuts = isMacPlatform(platform) ? MAC_SHORTCUTS : OTHER_SHORTCUTS;
-  return [...SHORTCUTS, ...platformShortcuts].some((shortcut) =>
+  const extra = isDrawnixTarget(event.target) ? DRAWNIX_SHORTCUTS : [];
+  return [...SHORTCUTS, ...platformShortcuts, ...extra].some((shortcut) =>
     matchesKeybindingShortcut(event, shortcut, platform),
   );
 }

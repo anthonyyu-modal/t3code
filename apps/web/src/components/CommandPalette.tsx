@@ -78,12 +78,14 @@ import {
   RotateCcwIcon,
   SettingsIcon,
   MonitorIcon,
+  PenToolIcon,
   PinIcon,
   PinOffIcon,
   PlugIcon,
   SquarePenIcon,
   TextSearchIcon,
   UserPlusIcon,
+  WorkflowIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
 import { dispatchPreviewAction } from "./preview/previewActionBus";
@@ -1537,17 +1539,41 @@ function OpenCommandPaletteDialog(props: {
 
   if (activeThread !== null) {
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
-    actionItems.push({
-      kind: "action",
-      value: "action:open-thread-whiteboard",
-      searchTerms: ["whiteboard", "draw", "sketch", "diagram", "excalidraw", "board"],
-      // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
-      title: "Open whiteboard",
-      icon: <ShapesIcon className={ITEM_ICON_CLASS} />,
-      run: async () => {
-        useRightPanelStore.getState().open(threadRef, "whiteboard");
+    actionItems.push(
+      {
+        kind: "action",
+        value: "action:open-thread-whiteboard",
+        searchTerms: ["whiteboard", "draw", "sketch", "diagram", "excalidraw", "board"],
+        // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+        title: "Open whiteboard",
+        icon: <ShapesIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          useRightPanelStore.getState().open(threadRef, "whiteboard");
+        },
       },
-    });
+      {
+        kind: "action",
+        value: "action:open-thread-drawio",
+        searchTerms: ["drawio", "draw.io", "diagram", "flowchart", "architecture", "mxgraph"],
+        // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+        title: "Open draw.io",
+        icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          useRightPanelStore.getState().open(threadRef, "drawio");
+        },
+      },
+      {
+        kind: "action",
+        value: "action:open-thread-drawnix",
+        searchTerms: ["drawnix", "plait", "diagram", "whiteboard", "mindmap", "flowchart"],
+        // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+        title: "Open Drawnix",
+        icon: <PenToolIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          useRightPanelStore.getState().open(threadRef, "drawnix");
+        },
+      },
+    );
   }
 
   if (activeThread !== null && canShareActiveThreadWithGuest) {

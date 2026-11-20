@@ -156,6 +156,16 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     useRightPanelStore.getState().open(activeThreadRef, "whiteboard");
   };
   const addWhiteboardSurfaceStable = useStableCallback(addWhiteboardSurface);
+  const addDrawioSurface = () => {
+    if (!activeThreadRef || !isServerThread) return;
+    useRightPanelStore.getState().open(activeThreadRef, "drawio");
+  };
+  const addDrawioSurfaceStable = useStableCallback(addDrawioSurface);
+  const addDrawnixSurface = () => {
+    if (!activeThreadRef || !isServerThread) return;
+    useRightPanelStore.getState().open(activeThreadRef, "drawnix");
+  };
+  const addDrawnixSurfaceStable = useStableCallback(addDrawnixSurface);
   const addDeviceSurface = () => {
     if (!activeThreadRef) return;
     if (!deviceState.onboardingCompleted || deviceState.hostStatus === "disabled") {
@@ -339,6 +349,8 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
     addWhiteboardSurfaceStable,
+    addDrawioSurfaceStable,
+    addDrawnixSurfaceStable,
     closePreviewPanelStable,
     copyRightPanelFilePathStable,
     createBrowserSurface,

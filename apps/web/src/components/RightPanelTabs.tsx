@@ -48,11 +48,13 @@ import {
   Files,
   Globe2,
   MessagesSquare,
+  PenTool,
   Shapes,
   Plus,
   TerminalSquare,
   Volume2Icon,
   VolumeOffIcon,
+  Workflow,
 } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -154,6 +156,10 @@ export interface RightPanelTabsProps {
   onAddSideChat?: (() => void) | undefined;
   /** Absent where there is no thread to keep a whiteboard for. */
   onAddWhiteboard?: (() => void) | undefined;
+  /** Absent where there is no thread to keep a draw.io diagram for. */
+  onAddDrawio?: (() => void) | undefined;
+  /** Absent where there is no thread to keep a Drawnix board for. */
+  onAddDrawnix?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -192,6 +198,8 @@ const SURFACE_DISABLED_REASONS = {
   device: msg("Devices are only available from a thread."),
   sideChat: msg("Side chats start after the first message."),
   whiteboard: msg("Whiteboards are only available from a thread."),
+  drawio: "draw.io diagrams are only available from a thread.",
+  drawnix: "Drawnix boards are only available from a thread.",
 } as const;
 
 // Closed keepMounted popups must stop blocking shortcuts once their exit transition ends.
@@ -218,6 +226,8 @@ const SURFACE_UNAVAILABLE_HINTS = {
   device: msg("Available from a thread."),
   sideChat: msg("Available after the first message."),
   whiteboard: msg("Available from a thread."),
+  drawio: msg("Available from a thread."),
+  drawnix: msg("Available from a thread."),
 } as const;
 
 type TabContextMenuAction =
@@ -342,6 +352,10 @@ function RightPanelEmptyState(props: {
   onAddSideChat?: (() => void) | undefined;
   /** Absent where there is no thread to keep a whiteboard for. */
   onAddWhiteboard?: (() => void) | undefined;
+  /** Absent where there is no thread to keep a draw.io diagram for. */
+  onAddDrawio?: (() => void) | undefined;
+  /** Absent where there is no thread to keep a Drawnix board for. */
+  onAddDrawnix?: (() => void) | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -440,6 +454,35 @@ function RightPanelEmptyState(props: {
             available: true,
             disabledReason: SURFACE_UNAVAILABLE_HINTS.whiteboard,
             onClick: props.onAddWhiteboard,
+          },
+        ]
+      : []),
+    ...(props.onAddDrawio
+      ? [
+          {
+            label: "draw.io",
+            // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+            description: "Full diagram editor with HTML labels, containers, and connectors.",
+            icon: Workflow,
+            shortcut: "I",
+            available: true,
+            disabledReason: SURFACE_UNAVAILABLE_HINTS.drawio,
+            onClick: props.onAddDrawio,
+          },
+        ]
+      : []),
+    ...(props.onAddDrawnix
+      ? [
+          {
+            // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+            label: "Drawnix",
+            // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+            description: "Whiteboard with inline rich text, elbow arrows, and mind maps.",
+            icon: PenTool,
+            shortcut: "X",
+            available: true,
+            disabledReason: SURFACE_UNAVAILABLE_HINTS.drawnix,
+            onClick: props.onAddDrawnix,
           },
         ]
       : []),
@@ -638,6 +681,11 @@ function surfaceTitle(
       return resolve(msg("Side chat"));
     case "whiteboard":
       return resolve(msg("Whiteboard"));
+    case "drawio":
+      return "draw.io";
+    case "drawnix":
+      // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+      return "Drawnix";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return resolve(msg("Browser"));
@@ -732,6 +780,10 @@ function SurfaceIcon({
       return <SideChatTabIcon environmentId={environmentId} threadId={surface.threadId} />;
     case "whiteboard":
       return <Shapes className="size-3 shrink-0" />;
+    case "drawio":
+      return <Workflow className="size-3 shrink-0" />;
+    case "drawnix":
+      return <PenTool className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -1277,6 +1329,31 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           },
         ]
       : []),
+    ...(props.onAddDrawio
+      ? [
+          {
+            label: "draw.io",
+            icon: Workflow,
+            shortcut: "I",
+            available: true,
+            disabledReason: SURFACE_DISABLED_REASONS.drawio,
+            onClick: props.onAddDrawio,
+          },
+        ]
+      : []),
+    ...(props.onAddDrawnix
+      ? [
+          {
+            // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+            label: "Drawnix",
+            icon: PenTool,
+            shortcut: "X",
+            available: true,
+            disabledReason: SURFACE_DISABLED_REASONS.drawnix,
+            onClick: props.onAddDrawnix,
+          },
+        ]
+      : []),
   ] as const;
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -1683,6 +1760,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddDevice={props.onAddDevice}
             onAddSideChat={props.onAddSideChat}
             onAddWhiteboard={props.onAddWhiteboard}
+            onAddDrawio={props.onAddDrawio}
+            onAddDrawnix={props.onAddDrawnix}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}

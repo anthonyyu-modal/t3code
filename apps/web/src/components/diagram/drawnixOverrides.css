@@ -1,0 +1,59 @@
+/* Fits Drawnix's floating toolbars into T3's right panel without overlapping at any width. */
+[data-drawnix-keys] .drawnix {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+[data-drawnix-keys] .drawnix .app-toolbar {
+  top: 12px;
+  left: 12px;
+}
+
+[data-drawnix-keys] .drawnix .draw-toolbar {
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+@container (max-width: 660px) {
+  [data-drawnix-keys] .drawnix .draw-toolbar {
+    top: 64px;
+  }
+}
+
+[data-drawnix-keys] .drawnix .zoom-toolbar {
+  top: auto;
+  right: auto;
+  bottom: 12px;
+  left: 12px;
+}
+
+[data-drawnix-keys] .drawnix .theme-toolbar {
+  bottom: 12px;
+  right: 12px;
+}
+
+/* Match Drawnix's floating islands to dark and starry canvas themes. */
+[data-drawnix-keys] .drawnix:has(.plait-board-container.theme-dark),
+[data-drawnix-keys] .drawnix:has(.plait-board-container.theme-starry) {
+  --island-bg-color: #1f1f23;
+  --island-border-color: #34343b;
+  --color-on-surface: #e4e4e7;
+  --icon-fill-color: #e4e4e7;
+  --color-gray-90: #e4e4e7;
+  --color-surface-high: #2b2b31;
+  --color-surface-mid: #27272d;
+  --color-surface-low: #232329;
+  --color-surface-lowest: #1f1f23;
+  --color-surface-secondary-container: #2b2b31;
+  --color-surface-primary-container: rgba(102, 152, 255, 0.22);
+  --dialog-border-color: #34343b;
+  --shadow-island: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+[data-drawnix-keys] .drawnix:has(.plait-board-container.theme-dark) .theme-toolbar select,
+[data-drawnix-keys] .drawnix:has(.plait-board-container.theme-starry) .theme-toolbar select {
+  background-color: #2b2b31;
+  color: #e4e4e7;
+}

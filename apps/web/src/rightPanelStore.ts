@@ -26,6 +26,8 @@ const RIGHT_PANEL_KINDS = [
   "issue",
   "side-chat",
   "whiteboard",
+  "drawio",
+  "drawnix",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -98,7 +100,9 @@ export type RightPanelSurface =
       url?: string;
     }
   | { id: `side-chat:${string}`; kind: "side-chat"; threadId: ThreadId }
-  | { id: "whiteboard"; kind: "whiteboard" };
+  | { id: "whiteboard"; kind: "whiteboard" }
+  | { id: "drawio"; kind: "drawio" }
+  | { id: "drawnix"; kind: "drawnix" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 const RIGHT_PANEL_STORAGE_VERSION = 15;
@@ -262,6 +266,10 @@ const singletonSurface = (
       return { id: "device", kind };
     case "whiteboard":
       return { id: "whiteboard", kind };
+    case "drawio":
+      return { id: "drawio", kind };
+    case "drawnix":
+      return { id: "drawnix", kind };
   }
 };
 

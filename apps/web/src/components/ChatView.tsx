@@ -2427,6 +2427,8 @@ export default function ChatView(props: ChatViewProps) {
     addPullRequestSurfaceStable,
     addPullRequestsSurfaceStable,
     addWhiteboardSurfaceStable,
+    addDrawioSurfaceStable,
+    addDrawnixSurfaceStable,
     closePreviewPanelStable,
     copyRightPanelFilePathStable,
     createBrowserSurface,
@@ -4113,6 +4115,8 @@ export default function ChatView(props: ChatViewProps) {
           onAddDevice={addDeviceSurfaceStable}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           onAddWhiteboard={isServerThread ? addWhiteboardSurfaceStable : undefined}
+          onAddDrawio={isServerThread ? addDrawioSurfaceStable : undefined}
+          onAddDrawnix={isServerThread ? addDrawnixSurfaceStable : undefined}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}

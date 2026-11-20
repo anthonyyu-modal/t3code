@@ -126,6 +126,22 @@ import {
   WorktreeSetupSubscribeInput,
 } from "./worktreeSetup.ts";
 import {
+  DiagramBoard,
+  DiagramBoardInput,
+  DiagramBoardRejected,
+  DiagramCreateInput,
+  DiagramDeleteInput,
+  DiagramDirectory,
+  DiagramDirectorySubscribeInput,
+  DiagramDocument,
+  DiagramDocumentEvent,
+  DiagramError,
+  DiagramRenameInput,
+  DiagramSaveInput,
+  DiagramSaveResult,
+  DiagramSelectInput,
+} from "./diagram.ts";
+import {
   Whiteboard,
   WhiteboardActivityEvent,
   WhiteboardActivitySubscribeInput,
@@ -692,6 +708,14 @@ export const WS_METHODS = {
   subscribeWhiteboard: "subscribeWhiteboard",
   subscribeWhiteboardActivity: "subscribeWhiteboardActivity",
   subscribeWhiteboardDirectory: "subscribeWhiteboardDirectory",
+  diagramGet: "diagram.get",
+  diagramSave: "diagram.save",
+  diagramCreate: "diagram.create",
+  diagramRename: "diagram.rename",
+  diagramDelete: "diagram.delete",
+  diagramSelect: "diagram.select",
+  subscribeDiagram: "subscribeDiagram",
+  subscribeDiagramDirectory: "subscribeDiagramDirectory",
   subscribeTerminalMetadata: "subscribeTerminalMetadata",
   subscribePreviewEvents: "subscribePreviewEvents",
   subscribeDiscoveredLocalServers: "subscribeDiscoveredLocalServers",
@@ -1798,6 +1822,59 @@ const WsSubscribeWhiteboardActivityRpc = Rpc.make(WS_METHODS.subscribeWhiteboard
   stream: true,
 });
 
+const DiagramBoardFailure = Schema.Union([
+  DiagramError,
+  DiagramBoardRejected,
+  EnvironmentAuthorizationError,
+]);
+
+const WsDiagramGetRpc = Rpc.make(WS_METHODS.diagramGet, {
+  payload: DiagramBoardInput,
+  success: DiagramDocument,
+  error: DiagramBoardFailure,
+});
+
+const WsDiagramSaveRpc = Rpc.make(WS_METHODS.diagramSave, {
+  payload: DiagramSaveInput,
+  success: DiagramSaveResult,
+  error: DiagramBoardFailure,
+});
+
+const WsDiagramCreateRpc = Rpc.make(WS_METHODS.diagramCreate, {
+  payload: DiagramCreateInput,
+  success: DiagramBoard,
+  error: DiagramBoardFailure,
+});
+
+const WsDiagramRenameRpc = Rpc.make(WS_METHODS.diagramRename, {
+  payload: DiagramRenameInput,
+  error: DiagramBoardFailure,
+});
+
+const WsDiagramDeleteRpc = Rpc.make(WS_METHODS.diagramDelete, {
+  payload: DiagramDeleteInput,
+  error: DiagramBoardFailure,
+});
+
+const WsDiagramSelectRpc = Rpc.make(WS_METHODS.diagramSelect, {
+  payload: DiagramSelectInput,
+  error: DiagramBoardFailure,
+});
+
+const WsSubscribeDiagramRpc = Rpc.make(WS_METHODS.subscribeDiagram, {
+  payload: DiagramBoardInput,
+  success: DiagramDocumentEvent,
+  error: DiagramBoardFailure,
+  stream: true,
+});
+
+const WsSubscribeDiagramDirectoryRpc = Rpc.make(WS_METHODS.subscribeDiagramDirectory, {
+  payload: DiagramDirectorySubscribeInput,
+  success: DiagramDirectory,
+  error: Schema.Union([DiagramError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
 const WsWorktreeSetupCancelRpc = Rpc.make(WS_METHODS.worktreeSetupCancel, {
   payload: WorktreeSetupCancelInput,
   success: WorktreeSetupCancelResult,
@@ -2523,6 +2600,14 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeWhiteboardRpc,
   WsSubscribeWhiteboardActivityRpc,
   WsSubscribeWhiteboardDirectoryRpc,
+  WsDiagramGetRpc,
+  WsDiagramSaveRpc,
+  WsDiagramCreateRpc,
+  WsDiagramRenameRpc,
+  WsDiagramDeleteRpc,
+  WsDiagramSelectRpc,
+  WsSubscribeDiagramRpc,
+  WsSubscribeDiagramDirectoryRpc,
   WsVcsPullRpc,
   WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,

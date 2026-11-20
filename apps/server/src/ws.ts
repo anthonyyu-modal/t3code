@@ -217,6 +217,7 @@ import { readWorkflowScript } from "./orchestration-v2/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
+import * as Diagrams from "./diagram/Diagrams.ts";
 import * as Whiteboards from "./whiteboard/Whiteboards.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import { refreshPushedPullRequests } from "./git/refreshPushedPullRequests.ts";
@@ -1462,6 +1463,7 @@ export const layerWsRpc = (
       const providerSessionsV2 = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const mcpAppRequests = yield* McpAppRequests.McpAppRequests;
       const whiteboards = yield* Whiteboards.Whiteboards;
+      const diagrams = yield* Diagrams.Diagrams;
       const analytics = yield* AnalyticsService.AnalyticsService;
       const originProps = clientAnalyticsProps;
       const recordClientCommandAnalytics = (command: OrchestrationV2Command) => {
@@ -3168,6 +3170,14 @@ export const layerWsRpc = (
         [WS_METHODS.subscribeWhiteboard]: (input) => whiteboards.stream(input.boardId),
         [WS_METHODS.subscribeWhiteboardActivity]: (_input) => whiteboards.activity,
         [WS_METHODS.subscribeWhiteboardDirectory]: (_input) => whiteboards.directory,
+        [WS_METHODS.diagramGet]: (input) => diagrams.get(input),
+        [WS_METHODS.diagramSave]: (input) => diagrams.save(input),
+        [WS_METHODS.diagramCreate]: (input) => diagrams.create(input),
+        [WS_METHODS.diagramRename]: (input) => diagrams.rename(input),
+        [WS_METHODS.diagramDelete]: (input) => diagrams.remove(input),
+        [WS_METHODS.diagramSelect]: (input) => diagrams.select(input),
+        [WS_METHODS.subscribeDiagram]: (input) => diagrams.stream(input),
+        [WS_METHODS.subscribeDiagramDirectory]: (input) => diagrams.directory(input.engine),
         [WS_METHODS.worktreeSetupCancel]: (input) =>
           worktreeSetupTracker
             .cancel(input.threadId)
@@ -3631,6 +3641,7 @@ export const layer = Layer.unwrap(
     const peerLinks = yield* PeerLinks.PeerLinks;
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
     const whiteboards = yield* Whiteboards.Whiteboards;
+    const diagrams = yield* Diagrams.Diagrams;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3733,6 +3744,7 @@ export const layer = Layer.unwrap(
               Layer.provide(Layer.succeed(PeerLinkRequests.PeerLinkRequests, peerLinkRequests)),
               // Server-lifetime, so every connection and the agent tools share one board store.
               Layer.provide(Layer.succeed(Whiteboards.Whiteboards, whiteboards)),
+              Layer.provide(Layer.succeed(Diagrams.Diagrams, diagrams)),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(
