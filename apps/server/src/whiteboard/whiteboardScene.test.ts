@@ -243,6 +243,422 @@ describe("applyWhiteboardEdit", () => {
       ],
     });
   });
+
+  it("styles a dark banner with a centred white label at fontSize 44", () => {
+    const elements = edit([], {
+      add: [
+        {
+          type: "rectangle",
+          id: "banner",
+          x: 0,
+          y: 0,
+          width: 1000,
+          height: 80,
+          backgroundColor: "#343a40",
+          strokeColor: "#343a40",
+          text: "Architecture Overview",
+          textColor: "#ffffff",
+          fontSize: 44,
+        },
+      ],
+    }).elements;
+    expect(describeWhiteboard(elements)).toEqual([
+      {
+        id: "banner",
+        type: "rectangle",
+        x: 0,
+        y: 0,
+        width: 1000,
+        height: 80,
+        text: "Architecture Overview",
+        strokeColor: "#343a40",
+        backgroundColor: "#343a40",
+        textColor: "#ffffff",
+        fontSize: 44,
+      },
+    ]);
+    const label = elements.find((element) => element.containerId === "banner");
+    expect(label).toMatchObject({
+      strokeColor: "#ffffff",
+      fontSize: 44,
+      fontFamily: 5,
+      textAlign: "center",
+      verticalAlign: "middle",
+    });
+    expect(Number(label?.x) + Number(label?.width) / 2).toBe(500);
+    expect(Number(label?.y) + Number(label?.height) / 2).toBe(40);
+  });
+
+  it("supports text alignment on free text (with and without width) and shape labels", () => {
+    const elements = edit([], {
+      add: [
+        { type: "text", id: "centered", x: 500, y: 0, text: "Center", textAlign: "center" },
+        { type: "text", id: "right", x: 500, y: 40, text: "Right", textAlign: "right" },
+        {
+          type: "text",
+          id: "wrapped",
+          x: 100,
+          y: 100,
+          width: 240,
+          text: "Right aligned inside a fixed width box",
+          textAlign: "right",
+        },
+        {
+          type: "rectangle",
+          id: "tl",
+          x: 0,
+          y: 200,
+          width: 200,
+          height: 100,
+          text: "Top left",
+          textAlign: "left",
+          verticalAlign: "top",
+        },
+        {
+          type: "rectangle",
+          id: "br",
+          x: 300,
+          y: 200,
+          width: 200,
+          height: 100,
+          text: "Bottom right",
+          textAlign: "right",
+          verticalAlign: "bottom",
+        },
+      ],
+    }).elements;
+
+    const byId = new Map(elements.map((element) => [String(element.id), element]));
+    const centered = byId.get("centered")!;
+    expect(Number(centered.x) + Number(centered.width) / 2).toBe(500);
+    expect(centered.autoResize).toBe(true);
+
+    const right = byId.get("right")!;
+    expect(Number(right.x) + Number(right.width)).toBe(500);
+
+    const wrapped = byId.get("wrapped")!;
+    expect(wrapped.x).toBe(100);
+    expect(wrapped.width).toBe(240);
+    expect(wrapped.autoResize).toBe(false);
+    expect(String(wrapped.text)).toContain("\n");
+
+    const tlLabel = elements.find((element) => element.containerId === "tl")!;
+    expect(tlLabel).toMatchObject({ x: 5, y: 205, textAlign: "left", verticalAlign: "top" });
+
+    const brLabel = elements.find((element) => element.containerId === "br")!;
+    expect(Number(brLabel.x) + Number(brLabel.width)).toBe(495);
+    expect(Number(brLabel.y) + Number(brLabel.height)).toBe(295);
+    expect(brLabel).toMatchObject({ textAlign: "right", verticalAlign: "bottom" });
+
+    const views = new Map(describeWhiteboard(elements).map((view) => [view.id, view]));
+    expect(views.get("centered")?.textAlign).toBe("center");
+    expect(views.get("right")?.textAlign).toBe("right");
+    expect(views.get("tl")).toMatchObject({ textAlign: "left", verticalAlign: "top" });
+    expect(views.get("br")).toMatchObject({ textAlign: "right", verticalAlign: "bottom" });
+
+    // Growing a right-aligned autoResize text keeps its right edge pinned at 500.
+    const updated = edit(elements, {
+      update: [
+        { id: "right", text: "Much longer right text" },
+        { id: "tl", x: 50, y: 250, textColor: "#1971c2" },
+      ],
+    }).elements;
+    const movedRight = updated.find((element) => element.id === "right")!;
+    expect(Number(movedRight.x) + Number(movedRight.width)).toBe(500);
+    const movedTlLabel = updated.find((element) => element.containerId === "tl")!;
+    expect(movedTlLabel).toMatchObject({
+      x: 55,
+      y: 255,
+      strokeColor: "#1971c2",
+      textAlign: "left",
+      verticalAlign: "top",
+    });
+  });
+
+  it("maps every shipped font family with its Excalidraw lineHeight and decodes legacy fonts", () => {
+    const elements = edit([], {
+      add: [
+        { type: "text", id: "f5", x: 0, y: 0, text: "Excalifont", fontFamily: "Excalifont" },
+        { type: "text", id: "f6", x: 0, y: 40, text: "Nunito", fontFamily: "Nunito" },
+        { type: "text", id: "f7", x: 0, y: 80, text: "Lilita", fontFamily: "Lilita One" },
+        { type: "text", id: "f8", x: 0, y: 120, text: "Shanns", fontFamily: "Comic Shanns" },
+        { type: "text", id: "f3", x: 0, y: 160, text: "Cascadia", fontFamily: "Cascadia" },
+      ],
+    }).elements;
+    const raw = (id: string) => elements.find((element) => element.id === id)!;
+    expect(raw("f5")).toMatchObject({ fontFamily: 5, lineHeight: 1.25, height: 25 });
+    expect(raw("f6")).toMatchObject({ fontFamily: 6, lineHeight: 1.35, height: 27 });
+    expect(raw("f7")).toMatchObject({ fontFamily: 7, lineHeight: 1.15, height: 23 });
+    expect(raw("f8")).toMatchObject({ fontFamily: 8, lineHeight: 1.25, height: 25 });
+    expect(raw("f3")).toMatchObject({ fontFamily: 3, lineHeight: 1.2, height: 24 });
+
+    const withLegacy = [
+      ...elements,
+      drawn("legacy", 1, { type: "text", text: "Old", fontFamily: 1, fontSize: 20 }),
+    ];
+    const views = new Map(describeWhiteboard(withLegacy).map((view) => [view.id, view]));
+    expect(views.get("f5")).not.toHaveProperty("fontFamily");
+    expect(views.get("f6")?.fontFamily).toBe("Nunito");
+    expect(views.get("f7")?.fontFamily).toBe("Lilita One");
+    expect(views.get("f8")?.fontFamily).toBe("Comic Shanns");
+    expect(views.get("f3")?.fontFamily).toBe("Cascadia");
+    expect(views.get("legacy")?.fontFamily).toBe("Virgil");
+  });
+
+  it("supports strokeWidth, arrowheads, opacity, fillStyle, roughness, roundness and updates", () => {
+    const elements = edit([], {
+      add: [
+        {
+          type: "rectangle",
+          id: "a",
+          x: 0,
+          y: 0,
+          width: 180,
+          height: 80,
+          strokeWidth: 4,
+          backgroundColor: "#e7f5ff",
+          fillStyle: "hachure",
+          roughness: 0,
+          roundness: "sharp",
+          opacity: 50,
+          text: "Styled",
+        },
+        { type: "rectangle", id: "b", x: 400, y: 0, width: 140, height: 80, text: "Target" },
+        {
+          type: "arrow",
+          id: "both",
+          from: "a",
+          to: "b",
+          strokeWidth: 4,
+          startArrowhead: "arrow",
+          endArrowhead: "diamond_outline",
+          roundness: "sharp",
+        },
+        {
+          type: "arrow",
+          id: "plain-arrow",
+          points: [
+            [0, 140],
+            [200, 140],
+          ],
+          endArrowhead: "none",
+        },
+      ],
+    }).elements;
+
+    const views = new Map(describeWhiteboard(elements).map((view) => [view.id, view]));
+    expect(views.get("a")).toMatchObject({
+      strokeWidth: 4,
+      fillStyle: "hachure",
+      roughness: 0,
+      roundness: "sharp",
+      opacity: 50,
+    });
+    expect(views.get("both")).toMatchObject({
+      strokeWidth: 4,
+      startArrowhead: "arrow",
+      endArrowhead: "diamond_outline",
+      roundness: "sharp",
+    });
+    expect(views.get("plain-arrow")).toMatchObject({ endArrowhead: "none" });
+    expect(views.get("plain-arrow")).not.toHaveProperty("startArrowhead");
+
+    // Bound label inherits container opacity, and updating opacity alone keeps label box intact.
+    const labelBefore = elements.find((element) => element.containerId === "a")!;
+    expect(labelBefore.opacity).toBe(50);
+
+    const updated = edit(elements, {
+      update: [
+        {
+          id: "a",
+          strokeWidth: 2,
+          fillStyle: "solid",
+          roughness: 1,
+          roundness: "round",
+          opacity: 100,
+        },
+        { id: "both", startArrowhead: "none", endArrowhead: "arrow", roundness: "round" },
+        { id: "plain-arrow", startArrowhead: "crowfoot_many", endArrowhead: "triangle" },
+      ],
+    }).elements;
+    const labelAfter = updated.find((element) => element.containerId === "a")!;
+    expect(labelAfter).toMatchObject({
+      opacity: 100,
+      x: labelBefore.x,
+      y: labelBefore.y,
+      width: labelBefore.width,
+      height: labelBefore.height,
+    });
+    const nextViews = new Map(describeWhiteboard(updated).map((view) => [view.id, view]));
+    expect(nextViews.get("a")).not.toHaveProperty("strokeWidth");
+    expect(nextViews.get("a")).not.toHaveProperty("fillStyle");
+    expect(nextViews.get("a")).not.toHaveProperty("roughness");
+    expect(nextViews.get("a")).not.toHaveProperty("roundness");
+    expect(nextViews.get("a")).not.toHaveProperty("opacity");
+    expect(nextViews.get("both")).not.toHaveProperty("startArrowhead");
+    expect(nextViews.get("both")).not.toHaveProperty("endArrowhead");
+    expect(nextViews.get("both")).not.toHaveProperty("roundness");
+    expect(nextViews.get("plain-arrow")).toMatchObject({
+      startArrowhead: "crowfoot_many",
+      endArrowhead: "triangle",
+    });
+  });
+
+  it("groups elements on add and update, syncs bound labels, and ungroups with empty string", () => {
+    const elements = edit([], {
+      add: [
+        {
+          type: "rectangle",
+          id: "card",
+          x: 0,
+          y: 0,
+          width: 300,
+          height: 150,
+          strokeColor: "#1971c2",
+          backgroundColor: "#ffffff",
+          group: "card-1",
+        },
+        {
+          type: "text",
+          id: "card-name",
+          x: 16,
+          y: 12,
+          width: 268,
+          text: "Launcher",
+          fontSize: 24,
+          textColor: "#1971c2",
+          group: "card-1",
+        },
+        {
+          type: "text",
+          id: "card-desc",
+          x: 16,
+          y: 50,
+          width: 268,
+          text: "Finds or creates the conversation sandbox.",
+          fontSize: 16,
+          group: "card-1",
+        },
+        {
+          type: "rectangle",
+          id: "labelled",
+          x: 400,
+          y: 0,
+          width: 160,
+          height: 80,
+          text: "Grouped box",
+          group: "box-g",
+        },
+      ],
+    }).elements;
+
+    const views = new Map(describeWhiteboard(elements).map((view) => [view.id, view]));
+    expect(views.get("card")?.group).toBe("card-1");
+    expect(views.get("card-name")).toMatchObject({ group: "card-1", strokeColor: "#1971c2" });
+    expect(views.get("card-desc")?.group).toBe("card-1");
+    expect(views.get("labelled")?.group).toBe("box-g");
+    const boundLabel = elements.find((element) => element.containerId === "labelled")!;
+    expect(boundLabel.groupIds).toEqual(["box-g"]);
+    expect(whiteboardLayoutWarnings(elements, new Set(["card", "card-name", "card-desc"]))).toEqual(
+      [],
+    );
+
+    const ungrouped = edit(elements, {
+      update: [
+        { id: "card-desc", group: "other" },
+        { id: "labelled", group: "" },
+      ],
+    }).elements;
+    const nextViews = new Map(describeWhiteboard(ungrouped).map((view) => [view.id, view]));
+    expect(nextViews.get("card-desc")?.group).toBe("other");
+    expect(nextViews.get("labelled")).not.toHaveProperty("group");
+    expect(ungrouped.find((element) => element.containerId === "labelled")?.groupIds).toEqual([]);
+
+    // User-created nested groups report the outermost group id.
+    const nested = [drawn("n", 1, { groupIds: ["inner", "outer"] })];
+    expect(describeWhiteboard(nested)[0]?.group).toBe("outer");
+  });
+
+  it("refuses invalid style values and incompatible types without changing the board", () => {
+    const before = twoBoxes();
+    const bad = applyWhiteboardEdit(
+      before,
+      {
+        update: [
+          { id: "plain", opacity: 120, startArrowhead: "arrow" },
+          { id: "plain", group: "   " },
+        ],
+        add: [
+          {
+            type: "text",
+            x: 0,
+            y: 0,
+            text: "hi",
+            fontFamily: "Comic Sans" as never,
+            textAlign: "justify" as never,
+            verticalAlign: "top",
+            strokeWidth: 4,
+            roundness: "sharp",
+          },
+          {
+            type: "rectangle",
+            x: 0,
+            y: 0,
+            strokeWidth: 0,
+            opacity: -5,
+            roughness: 3 as never,
+            fillStyle: "dots" as never,
+            group: "",
+          },
+          {
+            type: "ellipse",
+            x: 0,
+            y: 0,
+            roundness: "sharp",
+          },
+          {
+            type: "line",
+            points: [
+              [0, 0],
+              [100, 0],
+            ],
+            endArrowhead: "arrow",
+          },
+          {
+            type: "arrow",
+            points: [
+              [0, 0],
+              [100, 0],
+            ],
+            startArrowhead: "star" as never,
+            verticalAlign: "top",
+          },
+        ],
+      },
+      env(),
+    );
+    expect(bad.ok).toBe(false);
+    if (bad.ok) return;
+    expect(bad.problems).toEqual([
+      "update: opacity must be between 0 and 100, got 120.",
+      "update: startArrowhead only applies to arrows, not rectangle.",
+      'update: group cannot be blank, got "   ".',
+      "add: strokeWidth does not apply to text.",
+      "add: roundness does not apply to text.",
+      'add: invalid fontFamily "Comic Sans".',
+      'add: invalid textAlign "justify".',
+      "add: verticalAlign only applies to shapes, not text.",
+      'add: invalid fillStyle "dots".',
+      "add: strokeWidth must be positive, got 0.",
+      'add: invalid roughness "3".',
+      "add: opacity must be between 0 and 100, got -5.",
+      'add: group cannot be empty, got "".',
+      "add: roundness does not apply to ellipse.",
+      "add: endArrowhead only applies to arrows, not line.",
+      "add: verticalAlign only applies to shapes, not arrow.",
+      'add: invalid startArrowhead "star".',
+    ]);
+  });
 });
 
 describe("nextFractionalIndex", () => {
