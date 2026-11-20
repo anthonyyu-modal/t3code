@@ -59,6 +59,7 @@ import {
   hasCursorSkillMention,
   rewriteCursorSkillMentions,
 } from "./skills.ts";
+import { loadCursorProjectInstructions } from "./projectInstructions.ts";
 import { cursorWorkspaceMcpServers } from "./workspaceMcpServers.ts";
 import { t3OrchestrationPrompt } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
@@ -1103,6 +1104,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
           readonly orchestration: boolean;
           readonly device: boolean;
           readonly backgroundWait: boolean;
+          readonly projectInstructions: boolean;
           readonly runtime: string | undefined;
         } | null>(null);
         // Cursor drops a run cancelled before its first checkpoint, so the next message carries its prompt.
@@ -2485,6 +2487,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
                   orchestration: false,
                   device: false,
                   backgroundWait: false,
+                  projectInstructions: false,
                   runtime: undefined,
                 });
                 yield* Ref.update(interruptedPrompt, (current) =>
@@ -2876,15 +2879,35 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
             readonly orchestration: boolean;
             readonly device: boolean;
             readonly backgroundWait: boolean;
+            readonly projectInstructions: boolean;
             readonly runtime: string | undefined;
           },
           interrupted: string | undefined,
         ) {
           const rawText = turnInput.message.text;
           if (rawText.trim() === "/compress" && turnInput.message.attachments.length === 0) {
-            return { message: "/compress", prompt: undefined, runtimeInstructions: undefined };
+            return {
+              message: "/compress",
+              prompt: undefined,
+              runtimeInstructions: undefined,
+              hasProjectInstructions: false,
+            };
           }
-          const newText = t3OrchestrationPrompt({
+          const projectInstructions =
+            delivered.projectInstructions || turnInput.runtimePolicy.cwd === null
+              ? undefined
+              : yield* loadCursorProjectInstructions({
+                  cwd: turnInput.runtimePolicy.cwd,
+                  includeRootFile: !cursorLoadsProjectConfig(
+                    turnInput.runtimePolicy,
+                    platform,
+                  ),
+                  environment: adapterOptions.environment,
+                }).pipe(
+                  Effect.provideService(FileSystem.FileSystem, fileSystem),
+                  Effect.provideService(Path.Path, path),
+                );
+          const orchestratedText = t3OrchestrationPrompt({
             prompt: yield* providerMessageTextWithAttachmentPaths({
               text: yield* resolveCursorSkillText(
                 rawText,
@@ -2901,6 +2924,12 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
             providerInstructions: CURSOR_BACKGROUND_WAIT_INSTRUCTIONS,
             providerInstructionsDelivered: delivered.backgroundWait,
           });
+          const newText =
+            projectInstructions === undefined
+              ? orchestratedText
+              : orchestratedText.length === 0
+                ? projectInstructions
+                : `${projectInstructions}\n\n${orchestratedText}`;
           const userText =
             interrupted === undefined
               ? newText
@@ -2957,6 +2986,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
             message: images.length === 0 ? text : ({ text, images } satisfies SDKUserMessage),
             prompt: userText,
             runtimeInstructions: sendRuntimeInstructions ? runtimeInstructions : undefined,
+            hasProjectInstructions: projectInstructions !== undefined,
           };
         });
 
@@ -2992,6 +3022,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
                     orchestration: turnInput.nativeThreadHasTurns ?? turnInput.runOrdinal > 1,
                     device: false,
                     backgroundWait: false,
+                    projectInstructions: turnInput.nativeThreadHasTurns ?? turnInput.runOrdinal > 1,
                     runtime: undefined,
                   };
             const interrupted = yield* Ref.get(interruptedPrompt);
@@ -3020,7 +3051,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
                 providerThreadId: turnInput.providerThread.id,
               });
             }
-            const { message, prompt, runtimeInstructions } =
+            const { message, prompt, runtimeInstructions, hasProjectInstructions } =
               resume === "native"
                 ? {
                     message: "",
@@ -3029,12 +3060,14 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
                       interrupted?.agent === agent.nativeThreadId
                         ? interrupted.runtimeInstructions
                         : undefined,
+                    hasProjectInstructions: false,
                   }
                 : resume === "replay"
                   ? {
                       message: dropped!.message,
                       prompt: dropped!.text,
                       runtimeInstructions: dropped!.runtimeInstructions,
+                      hasProjectInstructions: false,
                     }
                   : yield* resolveUserMessage(
                       turnInput,
@@ -3097,6 +3130,8 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
                 device: !compacted && hasDeviceTools,
                 backgroundWait:
                   !compacted && (delivered.backgroundWait || mcpServers !== undefined),
+                projectInstructions:
+                  !compacted && (delivered.projectInstructions || hasProjectInstructions),
                 runtime: compacted ? undefined : delivered.runtime,
               });
             }
@@ -3634,6 +3669,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
                     orchestration: false,
                     device: false,
                     backgroundWait: false,
+                    projectInstructions: false,
                     runtime: undefined,
                   }),
                   Ref.set(interruptedPrompt, null),
