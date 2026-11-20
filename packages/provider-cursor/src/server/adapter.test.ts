@@ -3263,6 +3263,291 @@ describe("CursorAdapterV2", () => {
     }
   });
 
+  it.effect(
+    "injects AGENTS.md with cwd-bounded @path imports on turn 1 and after compaction in auto mode",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "cursor-v2-agents-md-",
+        });
+        const workspace = path.join(root, "repo");
+        yield* fileSystem.makeDirectory(workspace, { recursive: true });
+        yield* fileSystem.writeFileString(path.join(root, "outside.md"), "OUTSIDE_SECRET");
+        yield* fileSystem.writeFileString(path.join(workspace, "MEMORY.md"), "IN_CWD_MEMORY");
+        yield* fileSystem.writeFileString(
+          path.join(workspace, "AGENTS.md"),
+          "Use strict mode.\n@MEMORY.md\n@../outside.md",
+        );
+
+        const sentMessages: Array<string> = [];
+        const instanceId = ProviderInstanceId.make("cursor");
+        const threadId = ThreadId.make("cursor-agents-md-thread");
+        const modelSelection = { instanceId, model: "composer-2.5" };
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "auto",
+          interactionMode: "default",
+          cwd: workspace,
+        });
+        const adapter = yield* makeCursorAdapterV2({
+          instanceId,
+          environment: { HOME: root },
+        }).pipe(
+          Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {
+            assertComplete: Effect.void,
+            open: (openInput) =>
+              Effect.succeed({
+                agentId: openInput.agentId ?? "native-cursor-agents-md",
+                listMessages: Effect.succeed([]),
+                close: Effect.void,
+                send: (input) =>
+                  Effect.sync(() => {
+                    sentMessages.push(
+                      typeof input.message === "string" ? input.message : input.message.text,
+                    );
+                    const runId = `native-cursor-agents-run-${sentMessages.length}`;
+                    return {
+                      agentId: openInput.agentId ?? "native-cursor-agents-md",
+                      runId,
+                      wait: Effect.succeed({
+                        id: runId,
+                        requestId: `native-request-${sentMessages.length}`,
+                        status: "finished" as const,
+                        model: { id: "composer-2.5" },
+                        durationMs: 1,
+                      }),
+                      cancel: Effect.void,
+                    };
+                  }),
+              }),
+          }),
+          Effect.provide(TestProviderHost.layer({ cwd: workspace })),
+        );
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("cursor-agents-md-session"),
+          modelSelection,
+          runtimePolicy,
+        });
+        const providerThread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        });
+        const now = yield* DateTime.now;
+        const appThread = {
+          id: threadId,
+          projectId: ProjectId.make("cursor-agents-md-project"),
+          createdBy: "user" as const,
+          creationSource: "web" as const,
+          title: "Cursor AGENTS.md",
+          providerInstanceId: instanceId,
+          modelSelection,
+          runtimeMode: "auto" as const,
+          interactionMode: "default" as const,
+          branch: null,
+          worktreePath: null,
+          activeProviderThreadId: providerThread.id,
+          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+          forkedFrom: null,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
+          deletedAt: null,
+          settledOverride: null,
+          settledAt: null,
+          lastVisitedAt: null,
+        };
+        let ordinal = 0;
+        const sendTurn = (compact = false) =>
+          Effect.gen(function* () {
+            ordinal += 1;
+            const turnInput = {
+              threadId,
+              providerThread,
+              modelSelection,
+              runtimePolicy,
+              runId: RunId.make(`cursor-agents-run-${ordinal}`),
+              runOrdinal: ordinal,
+              providerTurnOrdinal: ordinal,
+              attemptId: RunAttemptId.make(`cursor-agents-attempt-${ordinal}`),
+              rootNodeId: NodeId.make(`cursor-agents-root-${ordinal}`),
+              appThread,
+              message: {
+                messageId: MessageId.make(`cursor-agents-msg-${ordinal}`),
+                createdBy: "user" as const,
+                creationSource: "web" as const,
+                text: "Check rules.",
+                attachments: [],
+              },
+            };
+            yield* compact ? runtime.compactThread!(turnInput) : runtime.startTurn(turnInput);
+            yield* runtime.events.pipe(
+              Stream.takeUntil((event) => event.type === "turn.terminal"),
+              Stream.runDrain,
+            );
+            return sentMessages.at(-1)!;
+          });
+
+        const turn1 = yield* sendTurn();
+        assert.include(turn1, "<project_instructions path=");
+        assert.include(turn1, "Use strict mode.");
+        assert.include(turn1, "IN_CWD_MEMORY");
+        assert.notInclude(turn1, "OUTSIDE_SECRET");
+
+        const turn2 = yield* sendTurn();
+        assert.notInclude(turn2, "<project_instructions");
+
+        yield* sendTurn(true);
+        const afterCompact = yield* sendTurn();
+        assert.include(afterCompact, "<project_instructions path=");
+        assert.include(afterCompact, "IN_CWD_MEMORY");
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            NodeServices.layer,
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            ProviderContinuationRequests.layer,
+          ),
+        ),
+      ),
+  );
+
+  it.effect(
+    "sends only expanded @path imports in full-access mode so AGENTS.md is not duplicated",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const workspace = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "cursor-v2-full-access-agents-",
+        });
+        yield* fileSystem.writeFileString(path.join(workspace, "FORK.md"), "FORK_SPECIFIC_RULE");
+        yield* fileSystem.writeFileString(
+          path.join(workspace, "AGENTS.md"),
+          "ROOT_AGENTS_RULE\n@FORK.md",
+        );
+
+        const sentMessages: Array<string> = [];
+        const instanceId = ProviderInstanceId.make("cursor");
+        const threadId = ThreadId.make("cursor-full-access-agents-thread");
+        const modelSelection = { instanceId, model: "composer-2.5" };
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: workspace,
+        });
+        const adapter = yield* makeCursorAdapterV2({
+          instanceId,
+          environment: { HOME: workspace },
+        }).pipe(
+          Effect.provideService(CursorAgentSdk.CursorAgentSdkRunner, {
+            assertComplete: Effect.void,
+            open: (openInput) =>
+              Effect.succeed({
+                agentId: openInput.agentId ?? "native-cursor-full-access",
+                listMessages: Effect.succeed([]),
+                close: Effect.void,
+                send: (input) =>
+                  Effect.sync(() => {
+                    sentMessages.push(
+                      typeof input.message === "string" ? input.message : input.message.text,
+                    );
+                    const runId = `native-cursor-full-run-${sentMessages.length}`;
+                    return {
+                      agentId: openInput.agentId ?? "native-cursor-full-access",
+                      runId,
+                      wait: Effect.succeed({
+                        id: runId,
+                        requestId: `native-request-${sentMessages.length}`,
+                        status: "finished" as const,
+                        model: { id: "composer-2.5" },
+                        durationMs: 1,
+                      }),
+                      cancel: Effect.void,
+                    };
+                  }),
+              }),
+          }),
+          Effect.provide(TestProviderHost.layer({ cwd: workspace })),
+        );
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("cursor-full-access-session"),
+          modelSelection,
+          runtimePolicy,
+        });
+        const providerThread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        });
+        const now = yield* DateTime.now;
+        yield* runtime.startTurn({
+          threadId,
+          providerThread,
+          modelSelection,
+          runtimePolicy,
+          runId: RunId.make("cursor-full-run-1"),
+          runOrdinal: 1,
+          providerTurnOrdinal: 1,
+          attemptId: RunAttemptId.make("cursor-full-attempt-1"),
+          rootNodeId: NodeId.make("cursor-full-root-1"),
+          appThread: {
+            id: threadId,
+            projectId: ProjectId.make("cursor-full-project"),
+            createdBy: "user",
+            creationSource: "web",
+            title: "Cursor Full Access AGENTS.md",
+            providerInstanceId: instanceId,
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            activeProviderThreadId: providerThread.id,
+            lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+            forkedFrom: null,
+            createdAt: now,
+            updatedAt: now,
+            archivedAt: null,
+            deletedAt: null,
+            settledOverride: null,
+            settledAt: null,
+            lastVisitedAt: null,
+          },
+          message: {
+            messageId: MessageId.make("cursor-full-msg-1"),
+            createdBy: "user",
+            creationSource: "web",
+            text: "Hi",
+            attachments: [],
+          },
+        });
+        yield* runtime.events.pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runDrain,
+        );
+        const turn1 = sentMessages[0]!;
+        assert.include(turn1, "<project_instruction_imports from=");
+        assert.include(turn1, "FORK_SPECIFIC_RULE");
+        assert.notInclude(turn1, "ROOT_AGENTS_RULE");
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            NodeServices.layer,
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            ProviderContinuationRequests.layer,
+          ),
+        ),
+      ),
+  );
+
   it.effect.skipIf(!symlinksSupported)(
     "starts mcp.json servers that use Cursor's workspace variables",
     () =>
