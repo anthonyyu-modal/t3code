@@ -1,4 +1,4 @@
-import { OrchestratorMcpFailure } from "@t3tools/contracts";
+import { OrchestratorMcpFailure, WhiteboardEngine } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { McpSchema, Tool, Toolkit } from "effect/ai";
 
@@ -100,10 +100,11 @@ const WhiteboardReadTool = Tool.make("whiteboard_read", {
   ...shared,
   failureMode: "return",
   description:
-    "Read the whiteboard, an Excalidraw board in the user's right panel that you both draw on. Returns every element (id, type, box, text, arrow ends) and what changed since you last looked. Freehand strokes and images are only listed; whiteboard_view shows them. boards names every board; all threads share them. board is null while this thread's tab shows none.",
+    "Read the whiteboard in the user's right panel that you both draw on. Boards use Excalidraw or tldraw; engine says which. Returns every element (id, type, box, text, arrow ends) and what changed since you last looked. Freehand strokes and images are only listed; whiteboard_view shows them. boards names every board; all threads share them. board is null while this thread's tab shows none.",
   parameters: Schema.Struct(Board),
   success: Schema.Struct({
     board: Schema.NullOr(Schema.String),
+    engine: Schema.NullOr(WhiteboardEngine),
     boards: Schema.Array(Schema.String),
     revision: Schema.Int,
     elements: Schema.Array(ElementView),
@@ -129,7 +130,7 @@ const WhiteboardEditTool = Tool.make("whiteboard_edit", {
   ...shared,
   failureMode: "return",
   description:
-    "Draw on the whiteboard. The user sees it at once: their Whiteboard tab opens and shows the board you drew on. One call may clear, remove, update and add, in that order; if any part is invalid nothing changes. Units are canvas pixels with y downward. Leave 80 between shapes, and 220 where a labelled arrow runs between them. Call whiteboard_read first and build around what is there. While this thread's tab shows no board, pass newBoard. Defaults: strokeWidth 2 (1 thin, 4 thick), roughness 1 (0 crisp, 2 rough), opacity 100 (0-100). textColor colours a shape's label; group joins elements to drag together (empty ungroups on update).",
+    "Draw on the whiteboard. The user sees it at once: their Whiteboard tab opens and shows the board you drew on. One call may clear, remove, update and add, in that order; if any part is invalid nothing changes. Units are canvas pixels with y downward. Leave 80 between shapes, and 220 where a labelled arrow runs between them. Call whiteboard_read first and build around what is there. While this thread's tab shows no board, pass newBoard; new boards use tldraw. Existing boards keep their engine. Defaults: strokeWidth 2 (1 thin, 4 thick), roughness 1 (0 crisp, 2 rough), opacity 100 (0-100). textColor colours a shape's label; group joins elements to drag together (empty ungroups on update). On tldraw boards, colours use the nearest native palette colour, sharp arrows become native elbow arrows, and rich text added later by the user is preserved unless you replace text.",
   parameters: Schema.Struct({
     ...Board,
     newBoard: Schema.optional(

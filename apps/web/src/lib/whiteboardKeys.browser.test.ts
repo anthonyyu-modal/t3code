@@ -49,4 +49,17 @@ describe("isWhiteboardKey", () => {
       outside.remove();
     }
   });
+  it("lets tldraw handle its full editing chord map, but still leaves F6 to T3", () => {
+    const board = document.body.appendChild(document.createElement("div"));
+    board.setAttribute("data-whiteboard-keys", "");
+    board.setAttribute("data-whiteboard-engine", "tldraw");
+    const canvas = board.appendChild(document.createElement("canvas"));
+    try {
+      expect(isWhiteboardKey(keydown(canvas, { key: "b", metaKey: true }), "MacIntel")).toBe(true);
+      expect(isWhiteboardKey(keydown(canvas, { key: "d", ctrlKey: true }), "MacIntel")).toBe(true);
+      expect(isWhiteboardKey(keydown(canvas, { key: "F6" }), "MacIntel")).toBe(false);
+    } finally {
+      board.remove();
+    }
+  });
 });

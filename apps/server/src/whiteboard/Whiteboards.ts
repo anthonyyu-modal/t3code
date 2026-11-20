@@ -4,10 +4,12 @@ import {
   WHITEBOARD_NAME_MAX_LENGTH,
   Whiteboard,
   WhiteboardBoardRejected,
+  type WhiteboardEngine,
   WhiteboardElement,
   WhiteboardError,
   WhiteboardFiles,
   WhiteboardId,
+  whiteboardEngine,
   WhiteboardName,
   type WhiteboardActivityEvent,
   type WhiteboardCreateInput,
@@ -59,6 +61,14 @@ import {
   type WhiteboardEdit,
   type WhiteboardElementView,
 } from "./whiteboardScene.ts";
+import {
+  applyTldrawEdit,
+  describeTldrawWhiteboard,
+  emptyTldrawElements,
+  tldrawChangesSince,
+  tldrawLayoutWarnings,
+  tldrawSeenVersions,
+} from "./tldrawScene.ts";
 
 // A window that is there answers within a second; one that is asleep never does.
 const SNAPSHOT_TIMEOUT = "5 seconds";
@@ -159,6 +169,8 @@ export class WhiteboardUnknownBoard extends Schema.TaggedError<WhiteboardUnknown
 export interface WhiteboardAgentView {
   /** The board that was read, by name. `null` when the thread's tab shows none and none was named. */
   readonly board: string | null;
+  /** Null with `board` when the thread shows none. */
+  readonly engine: WhiteboardEngine | null;
   /** Every board, by name. */
   readonly boards: ReadonlyArray<string>;
   readonly revision: number;
@@ -254,6 +266,7 @@ export class Whiteboards extends Context.Service<
     ) => Effect.Effect<
       {
         readonly board: string;
+        readonly engine: WhiteboardEngine;
         readonly revision: number;
         readonly elements: ReadonlyArray<WhiteboardElement>;
         readonly files: WhiteboardFiles;
@@ -271,8 +284,26 @@ export class Whiteboards extends Context.Service<
   }
 >()("t3/whiteboard/Whiteboards") {}
 
-const liveElementCount = (board: Pick<StoredBoard, "elements">) =>
-  board.elements.filter((element) => element.isDeleted !== true).length;
+const liveElementCount = (
+  board: Pick<StoredBoard, "elements">,
+  engine: WhiteboardEngine = "excalidraw",
+) =>
+  board.elements.filter(
+    (element) =>
+      element.isDeleted !== true &&
+      (engine === "excalidraw" || (element.typeName === "shape" && element.type !== "group")),
+  ).length;
+
+const describeBoard = (engine: WhiteboardEngine, elements: ReadonlyArray<WhiteboardElement>) =>
+  engine === "tldraw" ? describeTldrawWhiteboard(elements) : describeWhiteboard(elements);
+const changesOnBoard = (
+  engine: WhiteboardEngine,
+  seen: Readonly<Record<string, number>> | null,
+  elements: ReadonlyArray<WhiteboardElement>,
+) =>
+  engine === "tldraw" ? tldrawChangesSince(seen, elements) : whiteboardChangesSince(seen, elements);
+const seenOnBoard = (engine: WhiteboardEngine, elements: ReadonlyArray<WhiteboardElement>) =>
+  engine === "tldraw" ? tldrawSeenVersions(elements) : whiteboardSeenVersions(elements);
 
 const makeWith = Effect.fn("Whiteboards.make")(function* (
   storage: BoardStorage,
@@ -434,6 +465,11 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (
   const nameOf = (current: StoredIndex, boardId: WhiteboardId) =>
     current.boards.find((board) => board.boardId === boardId)?.name ?? boardId;
 
+  const engineOf = (current: StoredIndex, boardId: WhiteboardId): WhiteboardEngine =>
+    whiteboardEngine(
+      current.boards.find((board) => board.boardId === boardId) ?? { engine: "excalidraw" },
+    );
+
   const namesOf = (current: StoredIndex) => current.boards.map((board) => board.name);
 
   /** The board an agent means: its thread's tab's board, unless it names another. */
@@ -502,8 +538,15 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (
   ) => PubSub.publish(events, { boardId, event: sceneEvent(stored, editor, clientId) });
 
   const get: Whiteboards["Service"]["get"] = Effect.fn("Whiteboards.get")(function* (boardId) {
+    const current = yield* loadIndex();
     const stored = yield* load(yield* existing(boardId));
-    return { boardId, revision: stored.revision, elements: stored.elements, files: stored.files };
+    return {
+      boardId,
+      engine: engineOf(current, boardId),
+      revision: stored.revision,
+      elements: stored.elements,
+      files: stored.files,
+    };
   });
 
   const save: Whiteboards["Service"]["save"] = Effect.fn("Whiteboards.save")(function* (input) {
@@ -585,10 +628,12 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (
     name: string | undefined,
     threadId: ThreadId | undefined,
     contents: StoredBoard,
+    engine: WhiteboardEngine,
   ) {
     if (name !== undefined) yield* freeName(current, name);
     const board: Whiteboard = {
       boardId: yield* random.uuidV4(),
+      engine,
       name:
         name ??
         nameAfterThread(
@@ -604,14 +649,21 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (
     input,
   ) {
     const current = yield* loadIndex();
+    const engine =
+      input.copyOf === undefined ? (input.engine ?? "tldraw") : engineOf(current, input.copyOf);
     const source =
-      input.copyOf === undefined ? EMPTY_BOARD : yield* load(yield* existing(input.copyOf));
+      input.copyOf === undefined
+        ? engine === "tldraw"
+          ? { ...EMPTY_BOARD, elements: emptyTldrawElements() }
+          : EMPTY_BOARD
+        : yield* load(yield* existing(input.copyOf));
     const elements = source.elements.filter((element) => element.isDeleted !== true);
-    const added = yield* addBoard(current, input.name, input.threadId, {
-      revision: elements.length === 0 ? 0 : 1,
+    const contents = {
+      revision: liveElementCount({ elements }, engine) === 0 ? 0 : 1,
       elements,
       files: source.files,
-    });
+    };
+    const added = yield* addBoard(current, input.name, input.threadId, contents, engine);
     yield* storeIndex(
       input.threadId === undefined
         ? added.index
@@ -682,21 +734,30 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (
     const boardId = yield* named(current, threadId, name);
     if (boardId === null) {
       yield* told(threadId);
-      return { board: null, boards: namesOf(current), revision: 0, elements: [], changes: null };
+      return {
+        board: null,
+        engine: null,
+        boards: namesOf(current),
+        revision: 0,
+        elements: [],
+        changes: null,
+      };
     }
+    const engine = engineOf(current, boardId);
     const stored = yield* load(boardId);
     const seen = stored.seenBy?.[threadId] ?? null;
     // A board this agent never saw has nothing to compare against.
-    const changes = seen === null ? null : whiteboardChangesSince(seen, stored.elements);
+    const changes = seen === null ? null : changesOnBoard(engine, seen, stored.elements);
     if (changes !== null || seen === null) {
-      yield* store(boardId, withSeen(stored, threadId, whiteboardSeenVersions(stored.elements)));
+      yield* store(boardId, withSeen(stored, threadId, seenOnBoard(engine, stored.elements)));
     }
     if (boardId === shownIn(current, threadId)) yield* told(threadId);
     return {
       board: nameOf(current, boardId),
+      engine,
       boards: namesOf(current),
       revision: stored.revision,
-      elements: describeWhiteboard(stored.elements),
+      elements: describeBoard(engine, stored.elements),
       changes,
     };
   }, lock.withPermits(1));
@@ -719,16 +780,24 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (
     // No board yet: the agent asked for a new one, or its thread's tab shows none.
     const existingBoard =
       newName === undefined ? yield* named(before, threadId, target.board) : null;
-    const stored = existingBoard === null ? EMPTY_BOARD : yield* load(existingBoard);
-    const outcome = applyWhiteboardEdit(stored.elements, change, {
+    const engine = existingBoard === null ? "tldraw" : engineOf(before, existingBoard);
+    const stored =
+      existingBoard === null
+        ? { ...EMPTY_BOARD, elements: emptyTldrawElements() }
+        : yield* load(existingBoard);
+    const editEnvironment = {
       now: yield* Clock.currentTimeMillis,
       random: Math.random,
       makeId: () => SecureRandom.uuidV4Unsafe(),
-    });
+    };
+    const outcome =
+      engine === "tldraw"
+        ? applyTldrawEdit(stored.elements, change, editEnvironment)
+        : applyWhiteboardEdit(stored.elements, change, editEnvironment);
     if (!outcome.ok) return yield* new WhiteboardEditRejected({ problems: outcome.problems });
     // An invalid drawing must not leave an empty board behind, so the board starts only now.
     const added =
-      existingBoard === null ? yield* addBoard(before, newName, threadId, EMPTY_BOARD) : null;
+      existingBoard === null ? yield* addBoard(before, newName, threadId, stored, engine) : null;
     const boardId = existingBoard ?? added!.board.boardId;
     const current = added?.index ?? before;
     // Only what this edit touched counts as seen, so changes the agent has not seen still get reported.
@@ -739,13 +808,27 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (
     const seen = { ...stored.seenBy?.[threadId] };
     for (const element of touched) {
       if (typeof element.id !== "string") continue;
+      if (engine === "tldraw" && (element.typeName !== "shape" || element.type === "group")) {
+        continue;
+      }
       if (element.isDeleted === true) delete seen[element.id];
       else if (typeof element.version === "number") seen[element.id] = element.version;
     }
-    const layoutWarnings = whiteboardLayoutWarnings(
-      outcome.elements,
-      new Set(touched.flatMap((element) => (typeof element.id === "string" ? [element.id] : []))),
+    const touchedIds = new Set(
+      touched.flatMap((element) =>
+        typeof element.id === "string"
+          ? [
+              engine === "tldraw" && element.id.startsWith("shape:")
+                ? element.id.slice(6)
+                : element.id,
+            ]
+          : [],
+      ),
     );
+    const layoutWarnings =
+      engine === "tldraw"
+        ? tldrawLayoutWarnings(outcome.elements, touchedIds)
+        : whiteboardLayoutWarnings(outcome.elements, touchedIds);
     const next: StoredBoard =
       touched.length === 0
         ? stored
@@ -785,12 +868,14 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (
     if (boardId === null) {
       return yield* new WhiteboardPictureUnavailable({ reason: "no-board" });
     }
+    const engine = engineOf(current, boardId);
     const stored = yield* load(boardId);
-    if (liveElementCount(stored) === 0) {
+    if (liveElementCount(stored, engine) === 0) {
       return yield* new WhiteboardPictureUnavailable({ reason: "empty" });
     }
     const pictured = (board: StoredBoard, picture: WhiteboardPicture | null) => ({
       board: nameOf(current, boardId),
+      engine,
       revision: board.revision,
       elements: board.elements,
       files: board.files,
@@ -823,19 +908,20 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (
       return whiteboardSwitchNote(null);
     }
     const stored = yield* load(boardId);
+    const engine = engineOf(current, boardId);
     const name = nameOf(current, boardId);
     const seeAll = () =>
-      store(boardId, withSeen(stored, threadId, whiteboardSeenVersions(stored.elements)));
+      store(boardId, withSeen(stored, threadId, seenOnBoard(engine, stored.elements)));
     if (moved) {
       yield* seeAll();
       yield* told(threadId);
       return whiteboardSwitchNote({
         name,
         revision: stored.revision,
-        elementCount: liveElementCount(stored),
+        elementCount: liveElementCount(stored, engine),
       });
     }
-    const changes = whiteboardChangesSince(stored.seenBy?.[threadId] ?? null, stored.elements);
+    const changes = changesOnBoard(engine, stored.seenBy?.[threadId] ?? null, stored.elements);
     if (changes === null) return null;
     yield* seeAll();
     return whiteboardChangeNote(changes, stored.revision, name);

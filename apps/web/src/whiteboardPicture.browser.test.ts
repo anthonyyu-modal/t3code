@@ -38,3 +38,71 @@ it("draws a stored board as a white PNG whose longest edge is 1568 px", async ()
   const row = context.getImageData(0, 39, bitmap.width, 1).data;
   expect(row.some((channel, index) => index % 4 === 0 && channel < 128)).toBe(true);
 });
+
+it("draws native tldraw records on the same server picture page", async () => {
+  const picture = await drawWhiteboard({
+    engine: "tldraw",
+    elements: [
+      {
+        id: "document:document",
+        typeName: "document",
+        gridSize: 10,
+        name: "",
+        meta: {},
+        version: 1,
+      },
+      { id: "page:page", typeName: "page", name: "Page 1", index: "a1", meta: {}, version: 1 },
+      {
+        id: "shape:box",
+        typeName: "shape",
+        type: "geo",
+        x: 40,
+        y: 40,
+        rotation: 0,
+        index: "a1",
+        parentId: "page:page",
+        isLocked: false,
+        opacity: 1,
+        meta: {},
+        version: 1,
+        props: {
+          w: 100,
+          h: 50,
+          geo: "rectangle",
+          dash: "solid",
+          growY: 0,
+          url: "",
+          scale: 1,
+          flipX: false,
+          flipY: false,
+          color: "black",
+          labelColor: "black",
+          fill: "none",
+          size: "m",
+          font: "draw",
+          align: "middle",
+          verticalAlign: "middle",
+          richText: {
+            type: "doc",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Native tldraw" }] }],
+          },
+        },
+      },
+    ],
+    files: {},
+  });
+  expect(picture.mimeType).toBe("image/png");
+  expect(picture.width).toBeGreaterThan(100);
+  expect(picture.height).toBeGreaterThan(50);
+  const bitmap = await createImageBitmap(
+    await (await fetch(`data:${picture.mimeType};base64,${picture.data}`)).blob(),
+  );
+  expect([bitmap.width, bitmap.height]).toEqual([picture.width, picture.height]);
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const context = canvas.getContext("2d")!;
+  context.drawImage(bitmap, 0, 0);
+  const background = [...context.getImageData(2, 2, 1, 1).data];
+  expect(background.every((channel) => channel >= 249)).toBe(true);
+  const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+  expect(pixels.some((channel, index) => index % 4 === 0 && channel < 128)).toBe(true);
+});

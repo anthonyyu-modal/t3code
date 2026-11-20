@@ -1,24 +1,26 @@
 import "./components/whiteboard/excalidrawAssets";
 
 import { restoreElements } from "@excalidraw/excalidraw";
-import type { WhiteboardElement, WhiteboardFiles } from "@t3tools/contracts";
+import type { WhiteboardElement, WhiteboardEngine, WhiteboardFiles } from "@t3tools/contracts";
 
 import { drawBoardPicture } from "./components/whiteboard/boardPicture";
 
 type Files = Parameters<typeof drawBoardPicture>[0]["files"];
 
-/**
- * The page the server opens in its own headless browser to draw a board that no window has open
- * (apps/server/src/whiteboard/WhiteboardPictures.ts). It is sent the board's live elements and
- * the images they show, and takes them in the way a window takes in the server's scene.
- */
-export const drawWhiteboard = (scene: {
+/** The server opens this page to draw a board whether or not a window has it open. */
+export const drawWhiteboard = async (scene: {
+  readonly engine?: WhiteboardEngine | undefined;
   readonly elements: ReadonlyArray<WhiteboardElement>;
   readonly files: WhiteboardFiles;
-}) =>
-  drawBoardPicture({
+}) => {
+  if (scene.engine === "tldraw") {
+    const { drawTldrawWhiteboard } = await import("./components/whiteboard/tldrawPicturePage");
+    return drawTldrawWhiteboard(scene);
+  }
+  return drawBoardPicture({
     elements: restoreElements(scene.elements as never, null, { repairBindings: true }),
     files: scene.files as unknown as Files,
   });
+};
 
 Object.assign(window, { drawWhiteboard });

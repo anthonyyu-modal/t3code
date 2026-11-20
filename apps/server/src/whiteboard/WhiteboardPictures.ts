@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off - Playwright loads from disk and runs outside the Effect runtime.
 import type {
   ThreadId,
+  WhiteboardEngine,
   WhiteboardElement,
   WhiteboardError,
   WhiteboardFiles,
@@ -60,6 +61,7 @@ export class WhiteboardNotDrawn extends Schema.TaggedError<WhiteboardNotDrawn>()
 }
 
 interface Scene {
+  readonly engine?: WhiteboardEngine | undefined;
   readonly elements: ReadonlyArray<WhiteboardElement>;
   readonly files: WhiteboardFiles;
 }
@@ -136,13 +138,27 @@ const answer = (source: PageSource) => async (route: Route) => {
 
 /** What the page is sent: live elements, and only the images they show, not every one ever pasted. */
 export const pageScene = (scene: Scene): Scene => {
-  const elements = scene.elements.filter((element) => element.isDeleted !== true);
+  const liveElements = scene.elements.filter((element) => element.isDeleted !== true);
+  const assetIds = new Set(
+    liveElements.flatMap((element) => {
+      const assetId = (element.props as { assetId?: unknown } | undefined)?.assetId;
+      return typeof assetId === "string" ? [assetId] : [];
+    }),
+  );
+  const elements = liveElements.filter(
+    (element) => element.typeName !== "asset" || assetIds.has(String(element.id)),
+  );
+  const fileIds = elements.flatMap((element) => {
+    if (element.typeName === "asset" && typeof element.id === "string") return [element.id];
+    return typeof element.fileId === "string" ? [element.fileId] : [];
+  });
   return {
+    ...(scene.engine === undefined ? {} : { engine: scene.engine }),
     elements,
     files: Object.fromEntries(
-      elements.flatMap((element) => {
-        const file = typeof element.fileId === "string" ? scene.files[element.fileId] : undefined;
-        return file === undefined ? [] : [[element.fileId as string, file] as const];
+      fileIds.flatMap((fileId) => {
+        const file = scene.files[fileId];
+        return file === undefined ? [] : [[fileId, file] as const];
       }),
     ),
   };
@@ -336,13 +352,11 @@ const makeWith = Effect.fn("WhiteboardPictures.make")(function* (draw: Draw) {
   const picture: WhiteboardPictures["Service"]["picture"] = Effect.fn("WhiteboardPictures.picture")(
     function* (threadId, name) {
       // A window goes first: it draws what the user sees, and the server need start no browser.
-      const { board, revision, elements, files, picture } = yield* whiteboards.windowPicture(
-        threadId,
-        name,
-      );
+      const { board, engine, revision, elements, files, picture } =
+        yield* whiteboards.windowPicture(threadId, name);
       const drawn =
         picture ??
-        (yield* draw({ elements, files }).pipe(
+        (yield* draw({ engine, elements, files }).pipe(
           Effect.mapError(
             (error) =>
               new Whiteboards.WhiteboardPictureUnavailable({

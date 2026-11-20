@@ -73,6 +73,14 @@ export function isWhiteboardKey(
   platform: string,
 ): boolean {
   if (!isWhiteboardTarget(event.target)) return false;
+  // tldraw owns its whole editing chord map; unlike Excalidraw it has no separate list here to
+  // audit on each release. Function keys stay with T3 so F6 can always leave the board.
+  if (
+    event.target instanceof Element &&
+    event.target.closest('[data-whiteboard-engine="tldraw"]') !== null
+  ) {
+    return !/^f\d+$/i.test(event.key);
+  }
   if (!event.metaKey && !event.ctrlKey) return !/^f\d+$/i.test(event.key);
   const platformShortcuts = isMacPlatform(platform) ? MAC_SHORTCUTS : OTHER_SHORTCUTS;
   return [...SHORTCUTS, ...platformShortcuts].some((shortcut) =>

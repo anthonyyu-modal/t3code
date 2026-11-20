@@ -70,9 +70,10 @@ describe("Whiteboards", () => {
   it.effect("merges a window's save and only counts a revision when something changed", () =>
     Effect.gen(function* () {
       const boards = yield* Whiteboards.Whiteboards;
-      const { boardId } = yield* boards.create({ name: "Plan" });
+      const { boardId } = yield* boards.create({ name: "Plan", engine: "excalidraw" });
       expect(yield* boards.get(boardId)).toEqual({
         boardId,
+        engine: "excalidraw",
         revision: 0,
         elements: [],
         files: {},
@@ -87,10 +88,36 @@ describe("Whiteboards", () => {
     }).pipe(Effect.provide(Whiteboards.layerMemory)),
   );
 
+  it.effect("creates native tldraw boards while preserving Excalidraw as an explicit choice", () =>
+    Effect.gen(function* () {
+      const boards = yield* Whiteboards.Whiteboards;
+      const native = yield* boards.create({ name: "Native", threadId });
+      expect(native.engine).toBe("tldraw");
+      expect(yield* boards.get(native.boardId)).toMatchObject({
+        engine: "tldraw",
+        revision: 0,
+      });
+      expect(
+        (yield* boards.get(native.boardId)).elements.map((element) => element.typeName),
+      ).toEqual(["document", "page"]);
+      yield* boards.edit(
+        threadId,
+        {},
+        { add: [{ type: "rectangle", id: "native-box", x: 20, y: 30, text: "Native" }] },
+      );
+      expect(yield* boards.read(threadId)).toMatchObject({
+        engine: "tldraw",
+        elements: [{ id: "native-box", type: "rectangle", x: 20, y: 30, text: "Native" }],
+      });
+      const legacy = yield* boards.create({ name: "Legacy", engine: "excalidraw" });
+      expect((yield* boards.get(legacy.boardId)).elements).toEqual([]);
+    }).pipe(Effect.provide(Whiteboards.layerMemory)),
+  );
+
   it.effect("streams the current scene, then the user's and the agent's changes", () =>
     Effect.gen(function* () {
       const boards = yield* Whiteboards.Whiteboards;
-      const { boardId } = yield* boards.create({ name: "Plan", threadId });
+      const { boardId } = yield* boards.create({ name: "Plan", threadId, engine: "excalidraw" });
       yield* userSaves(boards, boardId, box("a", 1));
       const fiber = yield* collect(boards, boardId, 3);
       yield* userSaves(boards, boardId, box("b", 1));
@@ -110,6 +137,7 @@ describe("Whiteboards", () => {
         const boards = yield* Whiteboards.Whiteboards;
         expect(yield* boards.read(threadId)).toEqual({
           board: null,
+          engine: null,
           boards: [],
           revision: 0,
           elements: [],
@@ -161,9 +189,10 @@ describe("Whiteboards", () => {
     Effect.gen(function* () {
       const boards = yield* Whiteboards.Whiteboards;
       expect(yield* boards.takeUserChangeNote(threadId)).toBeNull();
+      yield* boards.create({ name: "Plan", threadId, engine: "excalidraw" });
       yield* boards.edit(
         threadId,
-        { newBoard: "Plan" },
+        {},
         { add: [{ type: "rectangle", id: "mine", x: 0, y: 0, text: "Agent box" }] },
       );
       const planId = (yield* directoryNow(boards)).selected[threadId]!;
@@ -191,13 +220,19 @@ describe("Whiteboards", () => {
     () =>
       Effect.gen(function* () {
         const boards = yield* Whiteboards.Whiteboards;
-        const { boardId } = yield* boards.create({ name: "Plan", threadId });
+        const { boardId } = yield* boards.create({ name: "Plan", threadId, engine: "excalidraw" });
         const unavailable = (yield* boards.windowPicture(threadId).pipe(Effect.flip)) as {
           readonly reason?: string;
         };
         expect(unavailable.reason).toBe("empty");
         yield* userSaves(boards, boardId, box("a", 1));
-        const board = { board: "Plan", revision: 1, elements: [box("a", 1)], files: {} };
+        const board = {
+          board: "Plan",
+          engine: "excalidraw",
+          revision: 1,
+          elements: [box("a", 1)],
+          files: {},
+        };
         expect(yield* boards.windowPicture(threadId)).toEqual({ ...board, picture: null });
 
         const tab = yield* collect(boards, boardId, 2);
@@ -235,12 +270,17 @@ describe("Whiteboards", () => {
       );
       yield* Deferred.await(subscribed);
       // Started from a thread without a name, a board is named after that thread.
-      const first = yield* boards.create({ threadId });
+      const first = yield* boards.create({ threadId, engine: "excalidraw" });
       expect(first.name).toBe("Request flow");
       yield* userSaves(boards, first.boardId, box("a", 1), box("gone", 2, { isDeleted: true }));
-      const plan = yield* boards.create({ name: "Plan", copyOf: first.boardId, threadId });
+      const plan = yield* boards.create({
+        name: "Plan",
+        copyOf: first.boardId,
+        threadId,
+        engine: "excalidraw",
+      });
       expect((yield* boards.get(plan.boardId)).elements).toEqual([box("a", 1)]);
-      const taken = yield* boards.create({ name: "plan" }).pipe(Effect.flip);
+      const taken = yield* boards.create({ name: "plan", engine: "excalidraw" }).pipe(Effect.flip);
       expect(taken.message).toBe('A board named "plan" already exists.');
 
       yield* boards.rename({ boardId: plan.boardId, name: "Roadmap" });
@@ -276,8 +316,8 @@ describe("Whiteboards", () => {
   it.effect("notes a board's changes only for threads whose tab shows it", () =>
     Effect.gen(function* () {
       const boards = yield* Whiteboards.Whiteboards;
-      const plan = yield* boards.create({ name: "Plan", threadId });
-      const sketch = yield* boards.create({ name: "Sketch" });
+      const plan = yield* boards.create({ name: "Plan", threadId, engine: "excalidraw" });
+      const sketch = yield* boards.create({ name: "Sketch", engine: "excalidraw" });
       expect(yield* boards.takeUserChangeNote(threadId)).toBe(
         [
           'This thread\'s Whiteboard tab now shows the board "Plan" (revision 0). It is empty.',
@@ -311,7 +351,7 @@ describe("Whiteboards", () => {
   it.effect("lets an agent name a board, and moves its thread's tab to where it draws", () =>
     Effect.gen(function* () {
       const boards = yield* Whiteboards.Whiteboards;
-      const plan = yield* boards.create({ name: "Plan" });
+      const plan = yield* boards.create({ name: "Plan", engine: "excalidraw" });
       yield* userSaves(boards, plan.boardId, box("a", 1));
 
       const peek = yield* boards.read(threadId, "plan");

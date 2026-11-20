@@ -54,6 +54,7 @@ export default function WhiteboardPanel(props: {
       className="@container relative h-full min-h-0 w-full @max-[800px]:[&_.sidebar-trigger\_\_label]:hidden!"
       data-testid="whiteboard-panel"
       data-whiteboard-keys
+      data-whiteboard-engine="excalidraw"
       {...rightDragPan}
     >
       <Excalidraw

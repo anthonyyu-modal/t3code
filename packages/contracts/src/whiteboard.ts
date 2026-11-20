@@ -36,11 +36,19 @@ export const WhiteboardName = TrimmedNonEmptyString.check(
 export type WhiteboardName = typeof WhiteboardName.Type;
 
 /** A board. Every thread on the server can open it. */
+export const WhiteboardEngine = Schema.Literals(["excalidraw", "tldraw"]);
+export type WhiteboardEngine = typeof WhiteboardEngine.Type;
+
+/** A board. Every thread on the server can open it. Boards made before engines were named are Excalidraw. */
 export const Whiteboard = Schema.Struct({
   boardId: WhiteboardId,
   name: WhiteboardName,
+  engine: Schema.optional(WhiteboardEngine),
 });
 export type Whiteboard = typeof Whiteboard.Type;
+
+export const whiteboardEngine = (board: Pick<Whiteboard, "engine">): WhiteboardEngine =>
+  board.engine ?? "excalidraw";
 
 /** The server's boards, and which one each thread's Whiteboard tab shows. */
 export const WhiteboardDirectory = Schema.Struct({
@@ -56,6 +64,8 @@ export type WhiteboardDirectorySubscribeInput = typeof WhiteboardDirectorySubscr
 export const WhiteboardCreateInput = Schema.Struct({
   /** Left out, the board is named after the thread in `threadId`. */
   name: Schema.optional(WhiteboardName),
+  /** New boards use tldraw unless an Excalidraw board is explicitly requested or copied. */
+  engine: Schema.optional(WhiteboardEngine),
   /** Starts the new board as a copy of this one. */
   copyOf: Schema.optional(WhiteboardId),
   /** Shows the new board in this thread's Whiteboard tab. */
@@ -83,6 +93,7 @@ export type WhiteboardSelectInput = typeof WhiteboardSelectInput.Type;
 
 export const WhiteboardScene = Schema.Struct({
   boardId: WhiteboardId,
+  engine: WhiteboardEngine,
   revision: NonNegativeInt,
   elements: Schema.Array(WhiteboardElement),
   files: WhiteboardFiles,

@@ -1,5 +1,10 @@
 /* oxlint-disable t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md) */
-import type { EnvironmentId, ScopedThreadRef, WhiteboardId } from "@t3tools/contracts";
+import {
+  whiteboardEngine,
+  type EnvironmentId,
+  type ScopedThreadRef,
+  type WhiteboardId,
+} from "@t3tools/contracts";
 import { lazy, Suspense, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { create } from "zustand";
@@ -11,6 +16,7 @@ import { WhiteboardBoardBar } from "./WhiteboardBoardBar";
 import { WhiteboardStart } from "./WhiteboardStart";
 
 const WhiteboardPanel = lazy(() => import("./WhiteboardPanel"));
+const TldrawPanel = lazy(() => import("./TldrawPanel"));
 
 // The board on screen and the ones left most recently. Each is a whole Excalidraw in memory.
 const MAX_LIVE_BOARDS = 5;
@@ -113,12 +119,15 @@ function LiveBoardMount({ live }: { readonly live: LiveBoard }) {
   const { boardId, environmentId } = live;
   const directory = useWhiteboardDirectory(environmentId);
   // A deleted board has nowhere left to save to.
-  const deleted =
-    typeof directory !== "string" && !directory.boards.some((board) => board.boardId === boardId);
-  if (deleted) return null;
+  const board =
+    typeof directory === "string"
+      ? undefined
+      : directory.boards.find((candidate) => candidate.boardId === boardId);
+  if (board === undefined) return null;
+  const Panel = whiteboardEngine(board) === "tldraw" ? TldrawPanel : WhiteboardPanel;
   return createPortal(
     <Suspense fallback={null}>
-      <WhiteboardPanel environmentId={environmentId} boardId={boardId} />
+      <Panel environmentId={environmentId} boardId={boardId} />
     </Suspense>,
     live.element,
   );

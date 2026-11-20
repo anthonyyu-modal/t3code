@@ -36,7 +36,7 @@ describe("WhiteboardPictures", () => {
     return Effect.gen(function* () {
       const boards = yield* Whiteboards.Whiteboards;
       const pictures = yield* WhiteboardPictures.WhiteboardPictures;
-      const { boardId } = yield* boards.create({ name: "Plan", threadId });
+      const { boardId } = yield* boards.create({ name: "Plan", threadId, engine: "excalidraw" });
       const image = { mimeType: "image/png", dataURL: "data:image/png;base64,AAAA" };
       yield* boards.save({
         boardId,
@@ -51,6 +51,7 @@ describe("WhiteboardPictures", () => {
       });
       expect(scenes).toEqual([
         {
+          engine: "excalidraw",
           elements: [box("a"), box("pasted", { type: "image", fileId: "f1" })],
           files: { f1: image },
         },
@@ -69,7 +70,7 @@ describe("WhiteboardPictures", () => {
     return Effect.gen(function* () {
       const boards = yield* Whiteboards.Whiteboards;
       const pictures = yield* WhiteboardPictures.WhiteboardPictures;
-      const { boardId } = yield* boards.create({ name: "Plan", threadId });
+      const { boardId } = yield* boards.create({ name: "Plan", threadId, engine: "excalidraw" });
       yield* boards.save({ boardId, clientId: "window-a", elements: [box("a")] as never });
       const subscribed = yield* Deferred.make<void>();
       const tab = yield* boards.stream(boardId).pipe(
@@ -96,7 +97,7 @@ describe("WhiteboardPictures", () => {
     Effect.gen(function* () {
       const boards = yield* Whiteboards.Whiteboards;
       const pictures = yield* WhiteboardPictures.WhiteboardPictures;
-      const { boardId } = yield* boards.create({ name: "Plan", threadId });
+      const { boardId } = yield* boards.create({ name: "Plan", threadId, engine: "excalidraw" });
       yield* boards.save({ boardId, clientId: "window-a", elements: [box("a")] as never });
       expect((yield* pictures.picture(threadId).pipe(Effect.flip)).message).toBe(
         "No window drew this board, and the server could not draw it either. This host is missing libraries T3's browser needs (libnss3.so). Run `sudo t3 browser setup` on the host to install them, then try again. Use whiteboard_read for the board's contents as data.",
@@ -132,6 +133,34 @@ describe("WhiteboardPictures", () => {
     ).toEqual({
       elements: [box("a"), shown, box("lost", { type: "image", fileId: "never-saved" })],
       files: { kept: image },
+    });
+
+    const asset = (id: string) => ({
+      id: `asset:${id}`,
+      typeName: "asset",
+      type: "image",
+      props: { src: null },
+      version: 1,
+    });
+    const imageShape = (id: string, assetId: string) => ({
+      id: `shape:${id}`,
+      typeName: "shape",
+      type: "image",
+      x: 0,
+      y: 0,
+      props: { assetId: `asset:${assetId}`, w: 20, h: 20 },
+      version: 1,
+    });
+    expect(
+      WhiteboardPictures.pageScene({
+        engine: "tldraw",
+        elements: [asset("used"), asset("unused"), imageShape("shown", "used")],
+        files: { "asset:used": image, "asset:unused": image },
+      }),
+    ).toEqual({
+      engine: "tldraw",
+      elements: [asset("used"), imageShape("shown", "used")],
+      files: { "asset:used": image },
     });
   });
 
