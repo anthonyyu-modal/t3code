@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as Whiteboards from "./Whiteboards.ts";
 
@@ -114,7 +115,7 @@ describe("Whiteboards", () => {
           elements: [],
           changes: null,
         });
-        expect((yield* boards.picture(threadId).pipe(Effect.flip)).message).toBe(
+        expect((yield* boards.windowPicture(threadId).pipe(Effect.flip)).message).toBe(
           "This thread's Whiteboard tab shows no board. Name one with board.",
         );
         const invalid = yield* boards.edit(threadId, {}, { remove: ["nope"] }).pipe(Effect.flip);
@@ -185,28 +186,41 @@ describe("Whiteboards", () => {
     }).pipe(Effect.provide(Whiteboards.layerMemory)),
   );
 
-  it.effect("gets a picture from an open tab, and says why when it cannot", () =>
-    Effect.gen(function* () {
-      const boards = yield* Whiteboards.Whiteboards;
-      const { boardId } = yield* boards.create({ name: "Plan", threadId });
-      const unavailable = (yield* boards.picture(threadId).pipe(Effect.flip)) as {
-        readonly reason?: string;
-      };
-      expect(unavailable.reason).toBe("empty");
-      yield* userSaves(boards, boardId, box("a", 1));
-      const closed = (yield* boards.picture(threadId).pipe(Effect.flip)) as {
-        readonly reason?: string;
-      };
-      expect(closed.reason).toBe("not-open");
+  it.effect(
+    "gets a picture from a window that shows the board, and the board when none draws",
+    () =>
+      Effect.gen(function* () {
+        const boards = yield* Whiteboards.Whiteboards;
+        const { boardId } = yield* boards.create({ name: "Plan", threadId });
+        const unavailable = (yield* boards.windowPicture(threadId).pipe(Effect.flip)) as {
+          readonly reason?: string;
+        };
+        expect(unavailable.reason).toBe("empty");
+        yield* userSaves(boards, boardId, box("a", 1));
+        const board = { board: "Plan", revision: 1, elements: [box("a", 1)], files: {} };
+        expect(yield* boards.windowPicture(threadId)).toEqual({ ...board, picture: null });
 
-      const tab = yield* collect(boards, boardId, 2);
-      const picture = yield* boards.picture(threadId).pipe(Effect.forkChild);
-      const request = (yield* Fiber.join(tab))[1];
-      if (request?.type !== "snapshot-request") throw new Error("expected a picture request");
-      const drawn = { mimeType: "image/png" as const, data: "AAAA", width: 4, height: 3 };
-      yield* boards.submitSnapshot({ requestId: request.requestId, ...drawn });
-      expect(yield* Fiber.join(picture)).toEqual({ ...drawn, board: "Plan", revision: 1 });
-    }).pipe(Effect.provide(Whiteboards.layerMemory)),
+        const tab = yield* collect(boards, boardId, 2);
+        const answered = yield* boards.windowPicture(threadId).pipe(Effect.forkChild);
+        const request = (yield* Fiber.join(tab))[1];
+        if (request?.type !== "snapshot-request") throw new Error("expected a picture request");
+        const drawn = { mimeType: "image/png" as const, data: "AAAA", width: 4, height: 3 };
+        yield* boards.submitSnapshot({ requestId: request.requestId, ...drawn });
+        expect(yield* Fiber.join(answered)).toEqual({ ...board, picture: drawn });
+
+        // A window that never answers, such as one on a sleeping laptop, is not waited on for long.
+        const asleep = yield* collect(boards, boardId, 2);
+        const unanswered = yield* boards.windowPicture(threadId).pipe(Effect.forkChild);
+        yield* Fiber.join(asleep);
+        yield* userSaves(boards, boardId, box("b", 1));
+        yield* TestClock.adjust("5 seconds");
+        expect(yield* Fiber.join(unanswered)).toEqual({
+          ...board,
+          revision: 2,
+          elements: [box("a", 1), box("b", 1)],
+          picture: null,
+        });
+      }).pipe(Effect.provide(Whiteboards.layerMemory)),
   );
 
   it.effect("keeps boards that any thread can show, and copies one board into another", () =>

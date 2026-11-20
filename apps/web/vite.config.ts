@@ -432,6 +432,8 @@ export default defineConfig(({ command }) => {
       sourcemap: buildSourcemap,
       ...(builtDev ? { watch: { exclude: rolldownWatchExclude } } : {}),
       rolldownOptions: {
+        // The second page is the one the server draws whiteboards in (src/whiteboardPicture.ts).
+        input: ["index.html", "whiteboard-picture.html"],
         output: {
           // PDF.js resolves decoder modules and ICC data relative to wasmUrl.
           assetFileNames: (asset) =>
