@@ -5,7 +5,17 @@ import { McpSchema, Tool, Toolkit } from "effect/ai";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as WhiteboardPictures from "../../../whiteboard/WhiteboardPictures.ts";
 import * as Whiteboards from "../../../whiteboard/Whiteboards.ts";
-import { WHITEBOARD_ADD_TYPES } from "../../../whiteboard/whiteboardScene.ts";
+import {
+  WHITEBOARD_ADD_TYPES,
+  WHITEBOARD_ARROWHEADS,
+  WHITEBOARD_FILL_STYLES,
+  WHITEBOARD_FONT_FAMILIES,
+  WHITEBOARD_ROUGHNESS,
+  WHITEBOARD_ROUNDNESS,
+  WHITEBOARD_STROKE_STYLES,
+  WHITEBOARD_TEXT_ALIGNS,
+  WHITEBOARD_VERTICAL_ALIGNS,
+} from "../../../whiteboard/whiteboardScene.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const shared = {
@@ -17,20 +27,33 @@ const shared = {
   ],
 };
 
-const Point = Schema.Tuple([Schema.Number, Schema.Number]);
+const Point = Schema.Tuple([Schema.Finite, Schema.Finite]);
+const Arrowhead = Schema.Literals(WHITEBOARD_ARROWHEADS);
 
 const Style = {
   strokeColor: Schema.optional(Schema.String),
   backgroundColor: Schema.optional(Schema.String),
-  strokeStyle: Schema.optional(Schema.Literals(["solid", "dashed", "dotted"])),
-  fontSize: Schema.optional(Schema.Number),
+  fillStyle: Schema.optional(Schema.Literals(WHITEBOARD_FILL_STYLES)),
+  strokeWidth: Schema.optional(Schema.Finite),
+  strokeStyle: Schema.optional(Schema.Literals(WHITEBOARD_STROKE_STYLES)),
+  roughness: Schema.optional(Schema.Literals(WHITEBOARD_ROUGHNESS)),
+  roundness: Schema.optional(Schema.Literals(WHITEBOARD_ROUNDNESS)),
+  opacity: Schema.optional(Schema.Finite),
+  group: Schema.optional(Schema.String),
+  textColor: Schema.optional(Schema.String),
+  fontSize: Schema.optional(Schema.Finite),
+  fontFamily: Schema.optional(Schema.Literals(WHITEBOARD_FONT_FAMILIES)),
+  textAlign: Schema.optional(Schema.Literals(WHITEBOARD_TEXT_ALIGNS)),
+  verticalAlign: Schema.optional(Schema.Literals(WHITEBOARD_VERTICAL_ALIGNS)),
+  startArrowhead: Schema.optional(Arrowhead),
+  endArrowhead: Schema.optional(Arrowhead),
 };
 
 const Box = {
-  x: Schema.optional(Schema.Number),
-  y: Schema.optional(Schema.Number),
-  width: Schema.optional(Schema.Number),
-  height: Schema.optional(Schema.Number),
+  x: Schema.optional(Schema.Finite),
+  y: Schema.optional(Schema.Finite),
+  width: Schema.optional(Schema.Finite),
+  height: Schema.optional(Schema.Finite),
 };
 
 const ElementView = Schema.Struct({
@@ -47,7 +70,20 @@ const ElementView = Schema.Struct({
   end: Schema.optional(Point),
   strokeColor: Schema.optional(Schema.String),
   backgroundColor: Schema.optional(Schema.String),
+  fillStyle: Schema.optional(Schema.String),
+  strokeWidth: Schema.optional(Schema.Number),
   strokeStyle: Schema.optional(Schema.String),
+  roughness: Schema.optional(Schema.Number),
+  roundness: Schema.optional(Schema.String),
+  opacity: Schema.optional(Schema.Number),
+  group: Schema.optional(Schema.String),
+  textColor: Schema.optional(Schema.String),
+  fontSize: Schema.optional(Schema.Number),
+  fontFamily: Schema.optional(Schema.String),
+  textAlign: Schema.optional(Schema.String),
+  verticalAlign: Schema.optional(Schema.String),
+  startArrowhead: Schema.optional(Schema.String),
+  endArrowhead: Schema.optional(Schema.String),
 });
 
 // Every tool acts on the board the thread's Whiteboard tab shows, unless the agent names another.
@@ -93,7 +129,7 @@ const WhiteboardEditTool = Tool.make("whiteboard_edit", {
   ...shared,
   failureMode: "return",
   description:
-    "Draw on the whiteboard. The user sees it at once: their Whiteboard tab opens and shows the board you drew on. One call may clear, remove, update and add, in that order; if any part is invalid nothing changes. Units are canvas pixels with y downward. Leave 80 between shapes, and 220 where a labelled arrow runs between them. Call whiteboard_read first and build around what is there. While this thread's tab shows no board, pass newBoard.",
+    "Draw on the whiteboard. The user sees it at once: their Whiteboard tab opens and shows the board you drew on. One call may clear, remove, update and add, in that order; if any part is invalid nothing changes. Units are canvas pixels with y downward. Leave 80 between shapes, and 220 where a labelled arrow runs between them. Call whiteboard_read first and build around what is there. While this thread's tab shows no board, pass newBoard. Defaults: strokeWidth 2 (1 thin, 4 thick), roughness 1 (0 crisp, 2 rough), opacity 100 (0-100). textColor colours a shape's label; group joins elements to drag together (empty ungroups on update).",
   parameters: Schema.Struct({
     ...Board,
     newBoard: Schema.optional(
@@ -126,7 +162,7 @@ const WhiteboardEditTool = Tool.make("whiteboard_edit", {
           ...Box,
           text: Schema.optional(
             Schema.String.annotate({
-              description: "A text element's content, or the centred label of a shape or arrow.",
+              description: "A text element's content, or the label of a shape or arrow.",
             }),
           ),
           from: Schema.optional(
@@ -143,7 +179,8 @@ const WhiteboardEditTool = Tool.make("whiteboard_edit", {
           ),
           ...Style,
         }).annotate({
-          description: "Shapes and text need x and y. A label wraps inside its shape's width.",
+          description:
+            "Shapes and text need x and y. Text with width wraps inside it; without width, textAlign anchors x.",
         }),
       ),
     ),
