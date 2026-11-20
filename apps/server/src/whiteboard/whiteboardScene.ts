@@ -1,12 +1,14 @@
 import type { WhiteboardElement } from "@t3tools/contracts";
 
 const TOMBSTONE_RETENTION_MS = 24 * 60 * 60 * 1000;
-// Excalidraw re-measures text in the browser; these only need to put its centre in the right place.
-const TEXT_CHAR_WIDTH = 0.6;
-const TEXT_LINE_HEIGHT = 1.25;
 const DEFAULT_FONT_SIZE = 20;
+const DEFAULT_FONT_FAMILY = 5;
 const DEFAULT_STROKE = "#1e1e1e";
+const DEFAULT_STROKE_WIDTH = 2;
+const DEFAULT_ROUGHNESS = 1;
+const DEFAULT_OPACITY = 100;
 const BINDING_GAP = 6;
+const BOUND_TEXT_PADDING = 5;
 const LABEL_INSET = 20;
 const LAYOUT_WARNING_LIMIT = 8;
 const DEFAULT_SHAPE = { width: 140, height: 70 };
@@ -25,11 +27,103 @@ export const WHITEBOARD_ADD_TYPES = [
 ] as const;
 export type WhiteboardAddType = (typeof WHITEBOARD_ADD_TYPES)[number];
 
+export const WHITEBOARD_STROKE_STYLES = ["solid", "dashed", "dotted"] as const;
+export type WhiteboardStrokeStyle = (typeof WHITEBOARD_STROKE_STYLES)[number];
+
+export const WHITEBOARD_FILL_STYLES = ["solid", "hachure", "cross-hatch", "zigzag"] as const;
+export type WhiteboardFillStyle = (typeof WHITEBOARD_FILL_STYLES)[number];
+
+export const WHITEBOARD_ROUNDNESS = ["round", "sharp"] as const;
+export type WhiteboardRoundness = (typeof WHITEBOARD_ROUNDNESS)[number];
+
+export const WHITEBOARD_ROUGHNESS = [0, 1, 2] as const;
+export type WhiteboardRoughness = (typeof WHITEBOARD_ROUGHNESS)[number];
+
+export const WHITEBOARD_FONT_FAMILIES = [
+  "Excalifont",
+  "Nunito",
+  "Lilita One",
+  "Comic Shanns",
+  "Cascadia",
+] as const;
+export type WhiteboardFontFamily = (typeof WHITEBOARD_FONT_FAMILIES)[number];
+
+export const WHITEBOARD_TEXT_ALIGNS = ["left", "center", "right"] as const;
+export type WhiteboardTextAlign = (typeof WHITEBOARD_TEXT_ALIGNS)[number];
+
+export const WHITEBOARD_VERTICAL_ALIGNS = ["top", "middle", "bottom"] as const;
+export type WhiteboardVerticalAlign = (typeof WHITEBOARD_VERTICAL_ALIGNS)[number];
+
+export const WHITEBOARD_ARROWHEADS = [
+  "none",
+  "arrow",
+  "bar",
+  "triangle",
+  "triangle_outline",
+  "circle",
+  "circle_outline",
+  "diamond",
+  "diamond_outline",
+  "crowfoot_one",
+  "crowfoot_many",
+  "crowfoot_one_or_many",
+] as const;
+export type WhiteboardArrowhead = (typeof WHITEBOARD_ARROWHEADS)[number];
+
+// Excalidraw font ids (FONT_FAMILY). Only families whose .woff2 ships with the app are offered.
+const FONT_ID_BY_NAME: Readonly<Record<WhiteboardFontFamily, number>> = {
+  Excalifont: 5,
+  Nunito: 6,
+  "Lilita One": 7,
+  "Comic Shanns": 8,
+  Cascadia: 3,
+};
+
+const FONT_NAME_BY_ID: Readonly<Record<number, string>> = {
+  1: "Virgil",
+  2: "Helvetica",
+  3: "Cascadia",
+  5: "Excalifont",
+  6: "Nunito",
+  7: "Lilita One",
+  8: "Comic Shanns",
+  9: "Liberation Sans",
+};
+
+// Line heights match Excalidraw's FONT_METADATA; charWidth is measured conservatively per font.
+const FONT_METRICS: Readonly<
+  Record<number, { readonly charWidth: number; readonly lineHeight: number }>
+> = {
+  1: { charWidth: 0.6, lineHeight: 1.25 },
+  2: { charWidth: 0.55, lineHeight: 1.15 },
+  3: { charWidth: 0.6, lineHeight: 1.2 },
+  5: { charWidth: 0.6, lineHeight: 1.25 },
+  6: { charWidth: 0.55, lineHeight: 1.35 },
+  7: { charWidth: 0.55, lineHeight: 1.15 },
+  8: { charWidth: 0.56, lineHeight: 1.25 },
+  9: { charWidth: 0.55, lineHeight: 1.15 },
+};
+
+const fontMetrics = (fontFamily: number) =>
+  FONT_METRICS[fontFamily] ?? FONT_METRICS[DEFAULT_FONT_FAMILY]!;
+
 export interface WhiteboardStyle {
   readonly strokeColor?: string | undefined;
   readonly backgroundColor?: string | undefined;
-  readonly strokeStyle?: "solid" | "dashed" | "dotted" | undefined;
+  readonly fillStyle?: WhiteboardFillStyle | undefined;
+  readonly strokeWidth?: number | undefined;
+  readonly strokeStyle?: WhiteboardStrokeStyle | undefined;
+  readonly roughness?: WhiteboardRoughness | undefined;
+  readonly roundness?: WhiteboardRoundness | undefined;
+  readonly opacity?: number | undefined;
+  readonly group?: string | undefined;
+  readonly textColor?: string | undefined;
   readonly fontSize?: number | undefined;
+  readonly fontFamily?: WhiteboardFontFamily | undefined;
+  readonly textAlign?: WhiteboardTextAlign | undefined;
+  readonly verticalAlign?: WhiteboardVerticalAlign | undefined;
+  readonly startArrowhead?: WhiteboardArrowhead | undefined;
+  readonly endArrowhead?: WhiteboardArrowhead | undefined;
 }
 
 export interface WhiteboardAddOp extends WhiteboardStyle {
@@ -90,7 +184,20 @@ export interface WhiteboardElementView {
   readonly end?: Point;
   readonly strokeColor?: string;
   readonly backgroundColor?: string;
+  readonly fillStyle?: string;
+  readonly strokeWidth?: number;
   readonly strokeStyle?: string;
+  readonly roughness?: number;
+  readonly roundness?: WhiteboardRoundness;
+  readonly opacity?: number;
+  readonly group?: string;
+  readonly textColor?: string;
+  readonly fontSize?: number;
+  readonly fontFamily?: string;
+  readonly textAlign?: string;
+  readonly verticalAlign?: string;
+  readonly startArrowhead?: string;
+  readonly endArrowhead?: string;
 }
 
 export interface WhiteboardChanges {
@@ -106,9 +213,43 @@ const num = (value: unknown, fallback = 0): number =>
   typeof value === "number" && Number.isFinite(value) ? value : fallback;
 const idOf = (element: WhiteboardElement) => str(element.id);
 const isLive = (element: WhiteboardElement) => element.isDeleted !== true;
+const isShapeType = (type: string) =>
+  type === "rectangle" || type === "ellipse" || type === "diamond";
+const isLinearType = (type: string) => type === "arrow" || type === "line";
 const isLinear = (element: WhiteboardElement) =>
   element.type === "arrow" || element.type === "line";
+const supportsRoundness = (type: string) =>
+  type === "rectangle" || type === "diamond" || type === "arrow" || type === "line";
 const round = (value: number) => Math.round(value);
+
+const isIn = <T extends string | number>(list: ReadonlyArray<T>, value: unknown): value is T =>
+  (list as ReadonlyArray<unknown>).includes(value);
+
+const groupIdsOf = (element: WhiteboardElement): ReadonlyArray<string> =>
+  Array.isArray(element.groupIds)
+    ? element.groupIds.filter(
+        (id: unknown): id is string => typeof id === "string" && id.length > 0,
+      )
+    : [];
+
+const roundnessValue = (type: string, roundness: WhiteboardRoundness | undefined) => {
+  if (roundness === "sharp" || type === "ellipse" || type === "text") return null;
+  return type === "rectangle" ? { type: 3 } : { type: 2 };
+};
+
+const arrowheadValue = (value: WhiteboardArrowhead) => (value === "none" ? null : value);
+
+const readArrowhead = (value: unknown): string | null => {
+  if (value === null) return "none";
+  if (value === "dot") return "circle";
+  return typeof value === "string" ? value : null;
+};
+
+const asTextAlign = (value: unknown): WhiteboardTextAlign | null =>
+  isIn(WHITEBOARD_TEXT_ALIGNS, value) ? value : null;
+
+const asVerticalAlign = (value: unknown): WhiteboardVerticalAlign | null =>
+  isIn(WHITEBOARD_VERTICAL_ALIGNS, value) ? value : null;
 
 const boundRefs = (element: WhiteboardElement): ReadonlyArray<{ id: string; type: string }> =>
   Array.isArray(element.boundElements)
@@ -228,7 +369,30 @@ function viewOf(
   const to = bindingTarget(element.endBinding);
   const strokeColor = str(element.strokeColor);
   const backgroundColor = str(element.backgroundColor);
+  const fillStyle = str(element.fillStyle);
+  const strokeWidth = num(element.strokeWidth, DEFAULT_STROKE_WIDTH);
   const strokeStyle = str(element.strokeStyle);
+  const roughness = num(element.roughness, DEFAULT_ROUGHNESS);
+  const opacity = num(element.opacity, DEFAULT_OPACITY);
+  const groups = groupIdsOf(element);
+  const group = groups[groups.length - 1];
+  const labelColor = type !== "text" && labelled ? str(label.strokeColor) : null;
+  const fontSize =
+    written === undefined ? DEFAULT_FONT_SIZE : num(written.fontSize, DEFAULT_FONT_SIZE);
+  const fontFamilyId =
+    written === undefined ? DEFAULT_FONT_FAMILY : num(written.fontFamily, DEFAULT_FONT_FAMILY);
+  const fontFamily = FONT_NAME_BY_ID[fontFamilyId];
+  const textAlign = written === undefined ? null : str(written.textAlign);
+  const defaultTextAlign = type === "text" ? "left" : "center";
+  const verticalAlign = isShapeType(type) && labelled ? str(label.verticalAlign) : null;
+  const startArrowhead =
+    type === "arrow" && element.startArrowhead !== undefined && element.startArrowhead !== null
+      ? readArrowhead(element.startArrowhead)
+      : null;
+  const endArrowhead =
+    type === "arrow" && element.endArrowhead !== undefined && element.endArrowhead !== "arrow"
+      ? readArrowhead(element.endArrowhead)
+      : null;
   return {
     id,
     type,
@@ -247,7 +411,28 @@ function viewOf(
       : {}),
     ...(strokeColor !== null && strokeColor !== DEFAULT_STROKE ? { strokeColor } : {}),
     ...(backgroundColor !== null && backgroundColor !== "transparent" ? { backgroundColor } : {}),
-    ...(strokeStyle !== null && strokeStyle !== "solid" ? { strokeStyle } : {}),
+    ...(type !== "text" && type !== "arrow" && fillStyle !== null && fillStyle !== "solid"
+      ? { fillStyle }
+      : {}),
+    ...(type !== "text" && strokeWidth !== DEFAULT_STROKE_WIDTH ? { strokeWidth } : {}),
+    ...(type !== "text" && strokeStyle !== null && strokeStyle !== "solid" ? { strokeStyle } : {}),
+    ...(type !== "text" && roughness !== DEFAULT_ROUGHNESS ? { roughness } : {}),
+    ...(supportsRoundness(type) && element.roundness === null
+      ? { roundness: "sharp" as const }
+      : {}),
+    ...(opacity !== DEFAULT_OPACITY ? { opacity: round(opacity) } : {}),
+    ...(group !== undefined ? { group } : {}),
+    ...(labelColor !== null && labelColor !== DEFAULT_STROKE ? { textColor: labelColor } : {}),
+    ...(written !== undefined && fontSize !== DEFAULT_FONT_SIZE
+      ? { fontSize: round(fontSize) }
+      : {}),
+    ...(written !== undefined && fontFamilyId !== DEFAULT_FONT_FAMILY && fontFamily !== undefined
+      ? { fontFamily }
+      : {}),
+    ...(textAlign !== null && textAlign !== defaultTextAlign ? { textAlign } : {}),
+    ...(verticalAlign !== null && verticalAlign !== "middle" ? { verticalAlign } : {}),
+    ...(startArrowhead !== null ? { startArrowhead } : {}),
+    ...(endArrowhead !== null ? { endArrowhead } : {}),
   };
 }
 
@@ -403,12 +588,13 @@ const touch = (element: WhiteboardElement, env: WhiteboardEditEnv, patch: Mutabl
   updated: env.now,
 });
 
-function textSize(text: string, fontSize: number) {
+function textSize(text: string, fontSize: number, fontFamily = DEFAULT_FONT_FAMILY) {
+  const { charWidth, lineHeight } = fontMetrics(fontFamily);
   const lines = text.split("\n");
   const longest = Math.max(1, ...lines.map((line) => line.length));
   return {
-    width: Math.ceil(longest * fontSize * TEXT_CHAR_WIDTH),
-    height: Math.ceil(lines.length * fontSize * TEXT_LINE_HEIGHT),
+    width: Math.ceil(longest * fontSize * charWidth),
+    height: Math.ceil(lines.length * fontSize * lineHeight),
   };
 }
 
@@ -417,8 +603,14 @@ const labelRoom = (element: WhiteboardElement) =>
   element.type === "ellipse" ? 0.71 : element.type === "diamond" ? 0.5 : 1;
 
 /** Breaks a label at spaces to fit `maxWidth`. A word longer than that keeps its own line. */
-function wrapLabel(text: string, fontSize: number, maxWidth: number): string {
-  const perLine = Math.max(1, Math.floor(maxWidth / (fontSize * TEXT_CHAR_WIDTH)));
+function wrapLabel(
+  text: string,
+  fontSize: number,
+  maxWidth: number,
+  fontFamily = DEFAULT_FONT_FAMILY,
+): string {
+  const { charWidth } = fontMetrics(fontFamily);
+  const perLine = Math.max(1, Math.floor(maxWidth / (fontSize * charWidth)));
   return text
     .split("\n")
     .map((paragraph) => {
@@ -436,6 +628,66 @@ function wrapLabel(text: string, fontSize: number, maxWidth: number): string {
       return [...lines, line].join("\n");
     })
     .join("\n");
+}
+
+function boundTextPosition(
+  container: WhiteboardElement,
+  size: { readonly width: number; readonly height: number },
+  textAlign: WhiteboardTextAlign,
+  verticalAlign: WhiteboardVerticalAlign,
+): Point {
+  if (isLinear(container)) {
+    const points = relativePoints(container);
+    const first = points[0] ?? [0, 0];
+    const last = points[points.length - 1] ?? first;
+    return [
+      num(container.x) + (first[0] + last[0]) / 2 - size.width / 2,
+      num(container.y) + (first[1] + last[1]) / 2 - size.height / 2,
+    ];
+  }
+  const cx = num(container.x);
+  const cy = num(container.y);
+  const width = num(container.width);
+  const height = num(container.height);
+  const insetX =
+    container.type === "ellipse"
+      ? (width / 2) * (1 - Math.SQRT2 / 2)
+      : container.type === "diamond"
+        ? width / 4
+        : 0;
+  const insetY =
+    container.type === "ellipse"
+      ? (height / 2) * (1 - Math.SQRT2 / 2)
+      : container.type === "diamond"
+        ? height / 4
+        : 0;
+  const maxW =
+    container.type === "ellipse"
+      ? Math.round((width / 2) * Math.SQRT2) - BOUND_TEXT_PADDING * 2
+      : container.type === "diamond"
+        ? Math.round(width / 2) - BOUND_TEXT_PADDING * 2
+        : width - BOUND_TEXT_PADDING * 2;
+  const maxH =
+    container.type === "ellipse"
+      ? Math.round((height / 2) * Math.SQRT2) - BOUND_TEXT_PADDING * 2
+      : container.type === "diamond"
+        ? Math.round(height / 2) - BOUND_TEXT_PADDING * 2
+        : height - BOUND_TEXT_PADDING * 2;
+  const originX = cx + BOUND_TEXT_PADDING + insetX;
+  const originY = cy + BOUND_TEXT_PADDING + insetY;
+  const x =
+    textAlign === "left"
+      ? originX
+      : textAlign === "right"
+        ? originX + (maxW - size.width)
+        : cx + width / 2 - size.width / 2;
+  const y =
+    verticalAlign === "top"
+      ? originY
+      : verticalAlign === "bottom"
+        ? originY + (maxH - size.height)
+        : cy + height / 2 - size.height / 2;
+  return [x, y];
 }
 
 const centerOf = (element: WhiteboardElement): Point => [
@@ -498,15 +750,15 @@ function baseElement(
     angle: 0,
     strokeColor: style.strokeColor ?? DEFAULT_STROKE,
     backgroundColor: style.backgroundColor ?? "transparent",
-    fillStyle: "solid",
-    strokeWidth: 2,
+    fillStyle: style.fillStyle ?? "solid",
+    strokeWidth: style.strokeWidth ?? DEFAULT_STROKE_WIDTH,
     strokeStyle: style.strokeStyle ?? "solid",
-    roughness: 1,
-    opacity: 100,
-    groupIds: [],
+    roughness: style.roughness ?? DEFAULT_ROUGHNESS,
+    opacity: style.opacity ?? DEFAULT_OPACITY,
+    groupIds: style.group === undefined || style.group === "" ? [] : [style.group],
     frameId: null,
     index: null,
-    roundness: type === "rectangle" ? { type: 3 } : type === "ellipse" ? null : { type: 2 },
+    roundness: roundnessValue(type, style.roundness),
     seed: randomInt(env),
     version: 1,
     versionNonce: randomInt(env),
@@ -521,28 +773,37 @@ function baseElement(
 function textElement(
   env: WhiteboardEditEnv,
   id: string,
-  text: string,
-  placement: { readonly center: Point } | { readonly topLeft: Point },
-  options: { readonly containerId: string | null; readonly strokeColor?: string | undefined },
-  fontSize: number,
+  box: { x: number; y: number; width: number; height: number },
+  options: {
+    readonly text: string;
+    readonly originalText: string;
+    readonly fontSize: number;
+    readonly fontFamily: number;
+    readonly textAlign: WhiteboardTextAlign;
+    readonly verticalAlign: WhiteboardVerticalAlign;
+    readonly containerId: string | null;
+    readonly autoResize: boolean;
+    readonly strokeColor?: string | undefined;
+    readonly opacity?: number | undefined;
+    readonly groupIds?: ReadonlyArray<string> | undefined;
+  },
 ): MutableElement {
-  const size = textSize(text, fontSize);
-  const [x, y] =
-    "center" in placement
-      ? [placement.center[0] - size.width / 2, placement.center[1] - size.height / 2]
-      : placement.topLeft;
   return {
-    ...baseElement(env, "text", id, { x, y, ...size }, { strokeColor: options.strokeColor }),
+    ...baseElement(env, "text", id, box, {
+      strokeColor: options.strokeColor,
+      opacity: options.opacity,
+    }),
+    groupIds: options.groupIds ? [...options.groupIds] : [],
     roundness: null,
-    text,
-    originalText: text,
-    fontSize,
-    fontFamily: 5,
-    textAlign: options.containerId === null ? "left" : "center",
-    verticalAlign: options.containerId === null ? "top" : "middle",
+    text: options.text,
+    originalText: options.originalText,
+    fontSize: options.fontSize,
+    fontFamily: options.fontFamily,
+    textAlign: options.textAlign,
+    verticalAlign: options.verticalAlign,
     containerId: options.containerId,
-    autoResize: true,
-    lineHeight: TEXT_LINE_HEIGHT,
+    autoResize: options.autoResize,
+    lineHeight: fontMetrics(options.fontFamily).lineHeight,
   };
 }
 
@@ -608,17 +869,6 @@ class Scene {
     return this.live(ref?.id);
   }
 
-  labelAnchor(container: WhiteboardElement): Point {
-    if (!isLinear(container)) return centerOf(container);
-    const points = relativePoints(container);
-    const first = points[0] ?? [0, 0];
-    const last = points[points.length - 1] ?? first;
-    return [
-      num(container.x) + (first[0] + last[0]) / 2,
-      num(container.y) + (first[1] + last[1]) / 2,
-    ];
-  }
-
   /**
    * Writes, moves or removes a container's label. A shape keeps the width it was given: the label
    * wraps inside it, and the shape grows only as far as the label's longest word and height need.
@@ -637,11 +887,20 @@ class Scene {
       return;
     }
     const fontSize = style.fontSize ?? num(existing?.fontSize, DEFAULT_FONT_SIZE);
+    const fontFamily =
+      style.fontFamily === undefined
+        ? num(existing?.fontFamily, DEFAULT_FONT_FAMILY)
+        : FONT_ID_BY_NAME[style.fontFamily];
+    const textAlign = style.textAlign ?? asTextAlign(existing?.textAlign) ?? "center";
+    const verticalAlign = isLinear(original)
+      ? "middle"
+      : (style.verticalAlign ?? asVerticalAlign(existing?.verticalAlign) ?? "middle");
+    const strokeColor = style.textColor ?? str(existing?.strokeColor) ?? DEFAULT_STROKE;
     const room = labelRoom(original);
     const shown = isLinear(original)
       ? text
-      : wrapLabel(text, fontSize, num(original.width) * room - LABEL_INSET);
-    const size = textSize(shown, fontSize);
+      : wrapLabel(text, fontSize, num(original.width) * room - LABEL_INSET, fontFamily);
+    const size = textSize(shown, fontSize, fontFamily);
     if (!isLinear(original)) {
       const fit = {
         width: Math.max(num(original.width), Math.ceil((size.width + LABEL_INSET) / room)),
@@ -652,23 +911,49 @@ class Scene {
       }
     }
     const container = this.byId.get(containerId) ?? original;
-    const anchor = this.labelAnchor(container);
+    const [x, y] = boundTextPosition(container, size, textAlign, verticalAlign);
+    const opacity = style.opacity ?? num(container.opacity, DEFAULT_OPACITY);
+    const groupIds =
+      style.group !== undefined ? (style.group === "" ? [] : [style.group]) : groupIdsOf(container);
     if (existing !== undefined) {
       this.patch(existing.id as string, {
         text: shown,
         originalText: text,
         fontSize,
+        fontFamily,
+        lineHeight: fontMetrics(fontFamily).lineHeight,
+        textAlign,
+        verticalAlign,
+        strokeColor,
+        opacity,
+        groupIds: [...groupIds],
         ...size,
-        x: anchor[0] - size.width / 2,
-        y: anchor[1] - size.height / 2,
+        x,
+        y,
       });
       return;
     }
     const id = this.env.makeId();
-    this.put({
-      ...textElement(this.env, id, shown, { center: anchor }, { containerId }, fontSize),
-      originalText: text,
-    });
+    this.put(
+      textElement(
+        this.env,
+        id,
+        { x, y, ...size },
+        {
+          text: shown,
+          originalText: text,
+          fontSize,
+          fontFamily,
+          textAlign,
+          verticalAlign,
+          containerId,
+          autoResize: true,
+          strokeColor,
+          opacity,
+          groupIds,
+        },
+      ),
+    );
     this.patch(containerId, { boundElements: withBound(container, { id, type: "text" }) });
   }
 
@@ -687,11 +972,13 @@ class Scene {
       const label = this.label(ref.id);
       const moved = this.byId.get(ref.id);
       if (label !== undefined && moved !== undefined) {
-        const anchor = this.labelAnchor(moved);
-        this.patch(label.id as string, {
-          x: anchor[0] - num(label.width) / 2,
-          y: anchor[1] - num(label.height) / 2,
-        });
+        const [x, y] = boundTextPosition(
+          moved,
+          { width: num(label.width), height: num(label.height) },
+          "center",
+          "middle",
+        );
+        this.patch(label.id as string, { x, y });
       }
     }
   }
@@ -724,6 +1011,115 @@ class Scene {
   }
 }
 
+function checkStyle(
+  prefix: string,
+  type: string | null,
+  style: WhiteboardStyle & {
+    readonly width?: number | undefined;
+    readonly height?: number | undefined;
+  },
+  isUpdate: boolean,
+  problems: Array<string>,
+) {
+  if (style.width !== undefined && (!Number.isFinite(style.width) || style.width <= 0)) {
+    problems.push(`${prefix}: width must be positive, got ${String(style.width)}.`);
+  }
+  if (style.height !== undefined && (!Number.isFinite(style.height) || style.height <= 0)) {
+    problems.push(`${prefix}: height must be positive, got ${String(style.height)}.`);
+  }
+  for (const field of ["strokeColor", "backgroundColor", "textColor"] as const) {
+    const value = style[field];
+    if (value !== undefined && (typeof value !== "string" || value.trim() === "")) {
+      problems.push(`${prefix}: invalid ${field} "${String(value)}".`);
+    }
+  }
+  if (style.strokeStyle !== undefined) {
+    if (!isIn(WHITEBOARD_STROKE_STYLES, style.strokeStyle)) {
+      problems.push(`${prefix}: invalid strokeStyle "${String(style.strokeStyle)}".`);
+    } else if (type === "text") {
+      problems.push(`${prefix}: strokeStyle does not apply to text.`);
+    }
+  }
+  if (style.fillStyle !== undefined) {
+    if (!isIn(WHITEBOARD_FILL_STYLES, style.fillStyle)) {
+      problems.push(`${prefix}: invalid fillStyle "${String(style.fillStyle)}".`);
+    } else if (type === "text" || type === "arrow") {
+      problems.push(`${prefix}: fillStyle does not apply to ${type}.`);
+    }
+  }
+  if (style.strokeWidth !== undefined) {
+    if (
+      typeof style.strokeWidth !== "number" ||
+      !Number.isFinite(style.strokeWidth) ||
+      style.strokeWidth <= 0
+    ) {
+      problems.push(`${prefix}: strokeWidth must be positive, got ${String(style.strokeWidth)}.`);
+    } else if (type === "text") {
+      problems.push(`${prefix}: strokeWidth does not apply to text.`);
+    }
+  }
+  if (style.roughness !== undefined) {
+    if (!isIn(WHITEBOARD_ROUGHNESS, style.roughness)) {
+      problems.push(`${prefix}: invalid roughness "${String(style.roughness)}".`);
+    } else if (type === "text") {
+      problems.push(`${prefix}: roughness does not apply to text.`);
+    }
+  }
+  if (style.roundness !== undefined) {
+    if (!isIn(WHITEBOARD_ROUNDNESS, style.roundness)) {
+      problems.push(`${prefix}: invalid roundness "${String(style.roundness)}".`);
+    } else if (type !== null && !supportsRoundness(type)) {
+      problems.push(`${prefix}: roundness does not apply to ${type}.`);
+    }
+  }
+  if (
+    style.opacity !== undefined &&
+    (typeof style.opacity !== "number" ||
+      !Number.isFinite(style.opacity) ||
+      style.opacity < 0 ||
+      style.opacity > 100)
+  ) {
+    problems.push(`${prefix}: opacity must be between 0 and 100, got ${String(style.opacity)}.`);
+  }
+  if (style.group !== undefined) {
+    if (typeof style.group !== "string") {
+      problems.push(`${prefix}: invalid group "${String(style.group)}".`);
+    } else if (!isUpdate && style.group.trim() === "") {
+      problems.push(`${prefix}: group cannot be empty, got "${style.group}".`);
+    } else if (isUpdate && style.group !== "" && style.group.trim() === "") {
+      problems.push(`${prefix}: group cannot be blank, got "${style.group}".`);
+    }
+  }
+  if (
+    style.fontSize !== undefined &&
+    (typeof style.fontSize !== "number" || !Number.isFinite(style.fontSize) || style.fontSize <= 0)
+  ) {
+    problems.push(`${prefix}: fontSize must be positive, got ${String(style.fontSize)}.`);
+  }
+  if (style.fontFamily !== undefined && !isIn(WHITEBOARD_FONT_FAMILIES, style.fontFamily)) {
+    problems.push(`${prefix}: invalid fontFamily "${String(style.fontFamily)}".`);
+  }
+  if (style.textAlign !== undefined && !isIn(WHITEBOARD_TEXT_ALIGNS, style.textAlign)) {
+    problems.push(`${prefix}: invalid textAlign "${String(style.textAlign)}".`);
+  }
+  if (style.verticalAlign !== undefined) {
+    if (!isIn(WHITEBOARD_VERTICAL_ALIGNS, style.verticalAlign)) {
+      problems.push(`${prefix}: invalid verticalAlign "${String(style.verticalAlign)}".`);
+    } else if (type !== null && !isShapeType(type)) {
+      problems.push(`${prefix}: verticalAlign only applies to shapes, not ${type}.`);
+    }
+  }
+  for (const field of ["startArrowhead", "endArrowhead"] as const) {
+    const value = style[field];
+    if (value === undefined) continue;
+    if (!isIn(WHITEBOARD_ARROWHEADS, value)) {
+      problems.push(`${prefix}: invalid ${field} "${String(value)}".`);
+    } else if (type !== null && type !== "arrow") {
+      problems.push(`${prefix}: ${field} only applies to arrows, not ${type}.`);
+    }
+  }
+}
+
 function checkEdit(scene: Scene, edit: WhiteboardEdit): ReadonlyArray<string> {
   const problems: Array<string> = [];
   const survivesClear = (id: string) => edit.clear !== true && scene.live(id) !== undefined;
@@ -733,7 +1129,13 @@ function checkEdit(scene: Scene, edit: WhiteboardEdit): ReadonlyArray<string> {
   for (const op of edit.update ?? []) {
     if (!survivesClear(op.id) || edit.remove?.includes(op.id)) {
       problems.push(`update: no element has id "${op.id}".`);
+      continue;
     }
+    const type = str(scene.live(op.id)?.type);
+    if (type === "text" && op.text === "") {
+      problems.push(`update: text element "${op.id}" cannot have empty text; use remove.`);
+    }
+    checkStyle("update", type, op, true, problems);
   }
   const newIds = new Set<string>();
   for (const op of edit.add ?? []) {
@@ -746,7 +1148,12 @@ function checkEdit(scene: Scene, edit: WhiteboardEdit): ReadonlyArray<string> {
   const resolvable = (id: string) =>
     newIds.has(id) || (survivesClear(id) && !edit.remove?.includes(id));
   for (const op of edit.add ?? []) {
-    const linear = op.type === "arrow" || op.type === "line";
+    if (!isIn(WHITEBOARD_ADD_TYPES, op.type)) {
+      problems.push(`add: invalid type "${String(op.type)}".`);
+      continue;
+    }
+    checkStyle("add", op.type, op, false, problems);
+    const linear = isLinearType(op.type);
     if (!linear) {
       if (op.x === undefined || op.y === undefined) {
         problems.push(`add: a ${op.type} needs x and y.`);
@@ -771,14 +1178,40 @@ function addShape(scene: Scene, op: WhiteboardAddOp, id: string) {
   const x = op.x ?? 0;
   const y = op.y ?? 0;
   if (op.type === "text") {
+    const rawText = op.text ?? "";
+    const fontSize = op.fontSize ?? DEFAULT_FONT_SIZE;
+    const fontFamily =
+      op.fontFamily === undefined ? DEFAULT_FONT_FAMILY : FONT_ID_BY_NAME[op.fontFamily];
+    const textAlign = op.textAlign ?? "left";
+    const autoResize = op.width === undefined;
+    const shown = autoResize ? rawText : wrapLabel(rawText, fontSize, op.width!, fontFamily);
+    const measured = textSize(shown, fontSize, fontFamily);
+    const width = autoResize ? measured.width : Math.max(op.width!, measured.width);
+    const boxX = autoResize
+      ? textAlign === "center"
+        ? x - width / 2
+        : textAlign === "right"
+          ? x - width
+          : x
+      : x;
     scene.put(
       textElement(
         scene.env,
         id,
-        op.text ?? "",
-        { topLeft: [x, y] },
-        { containerId: null, strokeColor: op.strokeColor },
-        op.fontSize ?? DEFAULT_FONT_SIZE,
+        { x: boxX, y, width, height: measured.height },
+        {
+          text: shown,
+          originalText: rawText,
+          fontSize,
+          fontFamily,
+          textAlign,
+          verticalAlign: "top",
+          containerId: null,
+          autoResize,
+          strokeColor: op.textColor ?? op.strokeColor,
+          opacity: op.opacity,
+          groupIds: op.group === undefined ? [] : [op.group],
+        },
       ),
     );
     return;
@@ -805,8 +1238,16 @@ function addConnector(scene: Scene, op: WhiteboardAddOp, id: string) {
     lastCommittedPoint: null,
     startBinding: bound ? binding(from) : null,
     endBinding: bound ? binding(to) : null,
-    startArrowhead: null,
-    endArrowhead: op.type === "arrow" ? "arrow" : null,
+    startArrowhead:
+      op.type === "arrow" && op.startArrowhead !== undefined
+        ? arrowheadValue(op.startArrowhead)
+        : null,
+    endArrowhead:
+      op.type === "arrow"
+        ? op.endArrowhead === undefined
+          ? "arrow"
+          : arrowheadValue(op.endArrowhead)
+        : null,
     ...(op.type === "arrow" ? { elbowed: false } : {}),
   });
   if (bound) {
@@ -823,34 +1264,98 @@ function addConnector(scene: Scene, op: WhiteboardAddOp, id: string) {
 function updateElement(scene: Scene, op: WhiteboardUpdateOp) {
   const element = scene.live(op.id);
   if (element === undefined) return;
-  const next = {
+  const type = str(element.type) ?? "";
+  const nextGroupIds = op.group === undefined ? undefined : op.group === "" ? [] : [op.group];
+  if (type === "text") {
+    const rawText = op.text ?? str(element.originalText) ?? str(element.text) ?? "";
+    const fontSize = op.fontSize ?? num(element.fontSize, DEFAULT_FONT_SIZE);
+    const fontFamily =
+      op.fontFamily === undefined
+        ? num(element.fontFamily, DEFAULT_FONT_FAMILY)
+        : FONT_ID_BY_NAME[op.fontFamily];
+    const textAlign = op.textAlign ?? asTextAlign(element.textAlign) ?? "left";
+    const autoResize = op.width !== undefined ? false : element.autoResize !== false;
+    const needsLayout =
+      op.text !== undefined ||
+      op.fontSize !== undefined ||
+      op.fontFamily !== undefined ||
+      op.width !== undefined;
+    let x = op.x ?? num(element.x);
+    let width = num(element.width);
+    let height = num(element.height);
+    let shown = str(element.text) ?? rawText;
+    if (needsLayout) {
+      const targetWidth = op.width ?? width;
+      shown = autoResize ? rawText : wrapLabel(rawText, fontSize, targetWidth, fontFamily);
+      const measured = textSize(shown, fontSize, fontFamily);
+      const prevWidth = num(element.width);
+      width = autoResize ? measured.width : Math.max(targetWidth, measured.width);
+      height = measured.height;
+      if (autoResize && op.x === undefined) {
+        const prevX = num(element.x);
+        x =
+          textAlign === "center"
+            ? prevX + (prevWidth - width) / 2
+            : textAlign === "right"
+              ? prevX + (prevWidth - width)
+              : prevX;
+      }
+    }
+    const textColor = op.textColor ?? op.strokeColor;
+    scene.patch(op.id, {
+      x,
+      y: op.y ?? num(element.y),
+      width,
+      height,
+      ...(textColor === undefined ? {} : { strokeColor: textColor }),
+      ...(op.opacity === undefined ? {} : { opacity: op.opacity }),
+      ...(nextGroupIds === undefined ? {} : { groupIds: nextGroupIds }),
+      ...(op.textAlign === undefined ? {} : { textAlign }),
+      ...(op.fontFamily === undefined
+        ? {}
+        : { fontFamily, lineHeight: fontMetrics(fontFamily).lineHeight }),
+      ...(op.width === undefined ? {} : { autoResize: false }),
+      ...(needsLayout ? { text: shown, originalText: rawText, fontSize } : {}),
+    });
+    return;
+  }
+  scene.patch(op.id, {
     x: op.x ?? num(element.x),
     y: op.y ?? num(element.y),
     width: op.width ?? num(element.width),
     height: op.height ?? num(element.height),
-  };
-  const standaloneText = element.type === "text";
-  const text = standaloneText && op.text !== undefined ? op.text : null;
-  const fontSize = op.fontSize ?? num(element.fontSize, DEFAULT_FONT_SIZE);
-  scene.patch(op.id, {
-    ...next,
     ...(op.strokeColor === undefined ? {} : { strokeColor: op.strokeColor }),
     ...(op.backgroundColor === undefined ? {} : { backgroundColor: op.backgroundColor }),
+    ...(op.fillStyle === undefined ? {} : { fillStyle: op.fillStyle }),
+    ...(op.strokeWidth === undefined ? {} : { strokeWidth: op.strokeWidth }),
     ...(op.strokeStyle === undefined ? {} : { strokeStyle: op.strokeStyle }),
-    ...(standaloneText && (text !== null || op.fontSize !== undefined)
-      ? {
-          text: text ?? element.text,
-          originalText: text ?? element.text,
-          fontSize,
-          ...textSize(text ?? str(element.text) ?? "", fontSize),
-        }
+    ...(op.roughness === undefined ? {} : { roughness: op.roughness }),
+    ...(op.roundness === undefined ? {} : { roundness: roundnessValue(type, op.roundness) }),
+    ...(op.opacity === undefined ? {} : { opacity: op.opacity }),
+    ...(nextGroupIds === undefined ? {} : { groupIds: nextGroupIds }),
+    ...(type === "arrow" && op.startArrowhead !== undefined
+      ? { startArrowhead: arrowheadValue(op.startArrowhead) }
+      : {}),
+    ...(type === "arrow" && op.endArrowhead !== undefined
+      ? { endArrowhead: arrowheadValue(op.endArrowhead) }
       : {}),
   });
-  if (standaloneText) return;
   const label = scene.label(op.id);
   const reshaped = [op.x, op.y, op.width, op.height].some((value) => value !== undefined);
-  if (op.text !== undefined || op.fontSize !== undefined || (label !== undefined && reshaped)) {
-    scene.setLabel(op.id, op.text ?? str(label?.text) ?? "", op);
+  const labelStyled = [
+    op.fontSize,
+    op.fontFamily,
+    op.textAlign,
+    op.verticalAlign,
+    op.textColor,
+  ].some((value) => value !== undefined);
+  if (op.text !== undefined || (label !== undefined && (reshaped || labelStyled))) {
+    scene.setLabel(op.id, op.text ?? str(label?.originalText) ?? str(label?.text) ?? "", op);
+  } else if (label !== undefined && (op.opacity !== undefined || nextGroupIds !== undefined)) {
+    scene.patch(label.id as string, {
+      ...(op.opacity === undefined ? {} : { opacity: op.opacity }),
+      ...(nextGroupIds === undefined ? {} : { groupIds: [...nextGroupIds] }),
+    });
   }
   scene.rerouteConnectors(op.id);
 }

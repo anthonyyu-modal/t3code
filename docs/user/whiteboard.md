@@ -23,10 +23,11 @@ Boards drawn while each thread still kept one to itself are in the list too, eac
 
 To bring in a drawing saved with **Save to…**, drop the file on the board. Its shapes are added to what is already there.
 
-An agent reads shapes, text, and arrows as data. Freehand strokes and pasted images it sees in a picture of the board. A window that has the board open draws that picture; when none has, the server draws it, so an agent can look at a sketch, or check its own drawing, while the app is closed.
+An agent reads shapes, text, and arrows as data, including styles such as colours, alignment, fonts, stroke width, arrowheads, opacity, fill style, roughness, sharp corners, and groups, and can set or change all of them when drawing. Freehand strokes and pasted images it sees in a picture of the board. A window that has the board open draws that picture; when none has, the server draws it, so an agent can look at a sketch, or check its own drawing, while the app is closed.
 
 ## Limits
 
+- Excalidraw 0.18.1 has no bold text weight; for heavier headings use the `Lilita One` display font or a larger size.
 - The note about your changes reaches Claude and Codex agents. Agents on other providers see your changes when they read the board, so ask them to look.
 - An image over 4 MB stays on the device where you pasted it.
 - The server draws a board with the headless browser T3 Code installs for itself, the same one behind agents' browser tools. The first picture after an install or update can ask the agent to try again in a minute while that browser downloads. On a host where it cannot run, the agent is told what the host lacks, usually with a `t3 browser setup` command to run there, and gets a picture only while a window has the board open.
