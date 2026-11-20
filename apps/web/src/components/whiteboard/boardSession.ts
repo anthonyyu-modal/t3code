@@ -1,9 +1,4 @@
-import {
-  CaptureUpdateAction,
-  exportToBlob,
-  reconcileElements,
-  restoreElements,
-} from "@excalidraw/excalidraw";
+import { CaptureUpdateAction, reconcileElements, restoreElements } from "@excalidraw/excalidraw";
 import type { AppState, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import type {
@@ -18,6 +13,7 @@ import { AsyncResult } from "effect/reactivity";
 import { randomUUID } from "../../lib/utils";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { whiteboardEnvironment } from "../../state/whiteboard";
+import { drawBoardPicture } from "./boardPicture";
 import {
   anyOutsideViewport,
   holdsEverySynced,
@@ -30,8 +26,6 @@ import {
 } from "./whiteboardSync";
 
 const SAVE_DEBOUNCE_MS = 400;
-// The longest edge Claude reads without downscaling; a larger picture only costs tokens.
-const PICTURE_MAX_EDGE = 1568;
 const QUIET = { reportFailure: false } as const;
 
 type RemoteElements = Parameters<typeof reconcileElements>[1];
@@ -41,15 +35,6 @@ export interface BoardSession {
   readonly changed: (elements: ReadonlyArray<SyncElement>, state: AppState) => void;
   /** Stops following the server and sends whatever is still unsaved. */
   readonly close: () => void;
-}
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-  }
-  return btoa(binary);
 }
 
 /**
@@ -215,36 +200,14 @@ export function openBoardSession(input: {
   };
 
   const sendPicture = async (requestId: string) => {
-    let size = { width: 0, height: 0 };
-    const blob = await exportToBlob({
+    const picture = await drawBoardPicture({
       elements: board.getSceneElements(),
-      // Always the light board, so colours the agent names match what whiteboard_read reports.
-      appState: {
-        exportBackground: true,
-        exportWithDarkMode: false,
-        viewBackgroundColor: "#ffffff",
-      },
       files: board.getFiles(),
-      mimeType: "image/png",
-      exportPadding: 24,
-      getDimensions: (width: number, height: number) => {
-        const scale = Math.min(1, PICTURE_MAX_EDGE / Math.max(width, height));
-        size = { width: Math.round(width * scale), height: Math.round(height * scale) };
-        return { ...size, scale };
-      },
     });
     await runAtomCommand(
       appAtomRegistry,
       whiteboardEnvironment.submitSnapshot,
-      {
-        environmentId,
-        input: {
-          requestId,
-          mimeType: "image/png" as const,
-          data: await blobToBase64(blob),
-          ...size,
-        },
-      },
+      { environmentId, input: { requestId, ...picture } },
       QUIET,
     );
   };
