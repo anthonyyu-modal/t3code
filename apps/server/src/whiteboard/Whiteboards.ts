@@ -60,7 +60,8 @@ import {
   type WhiteboardElementView,
 } from "./whiteboardScene.ts";
 
-const SNAPSHOT_TIMEOUT = "10 seconds";
+// A window that is there answers within a second; one that is asleep never does.
+const SNAPSHOT_TIMEOUT = "5 seconds";
 
 const SeenVersions = Schema.Record(Schema.String, Schema.Number);
 
@@ -125,7 +126,11 @@ export class WhiteboardEditRejected extends Schema.TaggedError<WhiteboardEditRej
 
 export class WhiteboardPictureUnavailable extends Schema.TaggedError<WhiteboardPictureUnavailable>()(
   "WhiteboardPictureUnavailable",
-  { reason: Schema.Literals(["no-board", "empty", "not-open", "timed-out"]) },
+  {
+    reason: Schema.Literals(["no-board", "empty", "not-drawn"]),
+    /** Why the server could not draw a board that no window drew. */
+    detail: Schema.optional(Schema.String),
+  },
 ) {
   override get message() {
     switch (this.reason) {
@@ -133,10 +138,8 @@ export class WhiteboardPictureUnavailable extends Schema.TaggedError<WhiteboardP
         return "This thread's Whiteboard tab shows no board. Name one with board.";
       case "empty":
         return "The whiteboard is empty, so there is nothing to picture.";
-      case "not-open":
-        return "No window has this board open in a Whiteboard tab, and only an open tab can draw the picture. Use whiteboard_read for the board's contents as data.";
-      case "timed-out":
-        return "The open Whiteboard tab did not return a picture in time. Use whiteboard_read for the board's contents as data.";
+      case "not-drawn":
+        return `No window drew this board, and the server could not draw it either. ${this.detail} Use whiteboard_read for the board's contents as data.`;
     }
   }
 }
@@ -240,12 +243,22 @@ export class Whiteboards extends Context.Service<
       },
       WhiteboardError | WhiteboardBoardRejected | WhiteboardUnknownBoard | WhiteboardEditRejected
     >;
-    /** Asks an open Whiteboard tab to draw the board, since only a browser can render it. */
-    readonly picture: (
+    /**
+     * The board an agent asks to see, and the picture of it that a window showing it draws.
+     * `picture` is null when no window shows the board or none answers in time; WhiteboardPictures
+     * then draws `elements` and `files` on the server.
+     */
+    readonly windowPicture: (
       threadId: ThreadId,
       board?: string,
     ) => Effect.Effect<
-      WhiteboardPicture & { readonly board: string; readonly revision: number },
+      {
+        readonly board: string;
+        readonly revision: number;
+        readonly elements: ReadonlyArray<WhiteboardElement>;
+        readonly files: WhiteboardFiles;
+        readonly picture: WhiteboardPicture | null;
+      },
       WhiteboardError | WhiteboardUnknownBoard | WhiteboardPictureUnavailable
     >;
     /**
@@ -764,34 +777,39 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (
     };
   }, lock.withPermits(1));
 
-  const picture: Whiteboards["Service"]["picture"] = Effect.fn("Whiteboards.picture")(
-    function* (threadId, name) {
-      const current = yield* loadIndex();
-      const boardId = yield* named(current, threadId, name);
-      if (boardId === null) {
-        return yield* new WhiteboardPictureUnavailable({ reason: "no-board" });
-      }
-      const stored = yield* load(boardId);
-      if (liveElementCount(stored) === 0) {
-        return yield* new WhiteboardPictureUnavailable({ reason: "empty" });
-      }
-      if ((openTabs.get(boardId) ?? 0) === 0) {
-        return yield* new WhiteboardPictureUnavailable({ reason: "not-open" });
-      }
-      const requestId = yield* random.uuidV4();
-      const request = yield* Deferred.make<WhiteboardPicture>();
-      pictureRequests.set(requestId, request);
-      yield* PubSub.publish(events, { boardId, event: { type: "snapshot-request", requestId } });
-      const drawn = yield* Deferred.await(request).pipe(
-        Effect.timeoutOption(SNAPSHOT_TIMEOUT),
-        Effect.ensuring(Effect.sync(() => pictureRequests.delete(requestId))),
-      );
-      if (Option.isNone(drawn)) {
-        return yield* new WhiteboardPictureUnavailable({ reason: "timed-out" });
-      }
-      return { ...drawn.value, board: nameOf(current, boardId), revision: stored.revision };
-    },
-  );
+  const windowPicture: Whiteboards["Service"]["windowPicture"] = Effect.fn(
+    "Whiteboards.windowPicture",
+  )(function* (threadId, name) {
+    const current = yield* loadIndex();
+    const boardId = yield* named(current, threadId, name);
+    if (boardId === null) {
+      return yield* new WhiteboardPictureUnavailable({ reason: "no-board" });
+    }
+    const stored = yield* load(boardId);
+    if (liveElementCount(stored) === 0) {
+      return yield* new WhiteboardPictureUnavailable({ reason: "empty" });
+    }
+    const pictured = (board: StoredBoard, picture: WhiteboardPicture | null) => ({
+      board: nameOf(current, boardId),
+      revision: board.revision,
+      elements: board.elements,
+      files: board.files,
+      picture,
+    });
+    if ((openTabs.get(boardId) ?? 0) === 0) return pictured(stored, null);
+    const requestId = yield* random.uuidV4();
+    const request = yield* Deferred.make<WhiteboardPicture>();
+    pictureRequests.set(requestId, request);
+    yield* PubSub.publish(events, { boardId, event: { type: "snapshot-request", requestId } });
+    const drawn = yield* Deferred.await(request).pipe(
+      Effect.timeoutOption(SNAPSHOT_TIMEOUT),
+      Effect.ensuring(Effect.sync(() => pictureRequests.delete(requestId))),
+    );
+    // The board may have changed while the window was waited on.
+    return Option.isSome(drawn)
+      ? pictured(stored, drawn.value)
+      : pictured(yield* load(boardId), null);
+  });
 
   const takeUserChangeNote: Whiteboards["Service"]["takeUserChangeNote"] = Effect.fn(
     "Whiteboards.takeUserChangeNote",
@@ -836,7 +854,7 @@ const makeWith = Effect.fn("Whiteboards.make")(function* (
     select,
     read,
     edit,
-    picture,
+    windowPicture,
     takeUserChangeNote,
   });
 });
