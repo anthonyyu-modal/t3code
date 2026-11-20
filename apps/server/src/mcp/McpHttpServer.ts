@@ -35,6 +35,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
 import * as Whiteboards from "../whiteboard/Whiteboards.ts";
+import * as WhiteboardPictures from "../whiteboard/WhiteboardPictures.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
@@ -977,6 +978,7 @@ const registerHtmlPreview = Effect.fn("McpHttpServer.registerHtmlPreview")(funct
 
 const registerWhiteboardView = Effect.fn("McpHttpServer.registerWhiteboardView")(function* () {
   const whiteboards = yield* Whiteboards.Whiteboards;
+  const pictures = yield* WhiteboardPictures.WhiteboardPictures;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const built = yield* decodeAsAdvertised(WhiteboardViewToolkit);
   yield* registerImageTool(
@@ -988,6 +990,7 @@ const registerWhiteboardView = Effect.fn("McpHttpServer.registerWhiteboardView")
     (effect) =>
       effect.pipe(
         Effect.provideService(Whiteboards.Whiteboards, whiteboards),
+        Effect.provideService(WhiteboardPictures.WhiteboardPictures, pictures),
         Effect.provideService(ThreadManagementService.ThreadManagementService, threads),
       ),
     "whiteboard",
@@ -1312,7 +1315,7 @@ export const layerHtmlToolkit = Layer.mergeAll(
 const layerWhiteboardToolkit = Layer.mergeAll(
   toolkitRegistration(WhiteboardDataToolkit, WhiteboardHandlers.layerData),
   imageToolRegistration(registerWhiteboardView(), WhiteboardHandlers.layerView),
-);
+).pipe(Layer.provide(WhiteboardPictures.layer));
 
 const layerPreviewStandardToolkitRegistration = toolkitRegistration(
   PreviewStandardToolkit,
