@@ -1247,3 +1247,168 @@ describe("ChatMarkdown host media", () => {
     expect(screen.container.textContent).not.toContain("Retry video");
   });
 });
+
+describe("ChatMarkdown custom-labeled code links", () => {
+  const threadRef = {
+    environmentId: EnvironmentId.make("workspace"),
+    threadId: ThreadId.make("thread"),
+  };
+
+  it("renders a custom prose label as the clickable file link without appending a file chip", async () => {
+    setup();
+    using openFile = vi.spyOn(useRightPanelStore.getState(), "openFile");
+    await using screen = await renderText(
+      "Check [validates the input](/tmp/project/src/example.ts:12) before running.",
+      { threadRef },
+    );
+
+    expect(screen.container.textContent).toBe("Check validates the input before running.");
+    const link = screen.container.querySelector<HTMLAnchorElement>("a.chat-markdown-file-link")!;
+    expect(link).not.toBeNull();
+    expect(link.dataset.customLabel).toBe("text");
+    expect(link.textContent).toBe("validates the input");
+    expect(getComputedStyle(link).display).toBe("inline");
+    expect(getComputedStyle(link).whiteSpace).toBe("normal");
+
+    await act(async () => link.click());
+    expect(openFile).toHaveBeenCalledExactlyOnceWith(threadRef, "src/example.ts", 12);
+
+    await userEvent.hover(link);
+    await expect.element(page.getByText("/tmp/project/src/example.ts:12")).toBeVisible();
+
+    const range = document.createRange();
+    range.selectNodeContents(screen.container.querySelector("p")!);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    expect(chatMarkdownClipboardPayload(selection)?.text).toBe(
+      "Check [validates the input](/tmp/project/src/example.ts:12) before running.",
+    );
+  });
+
+  it("renders inline-code symbol links as tinted code pills without nested anchors or underline", async () => {
+    setup();
+    using openFile = vi.spyOn(useRightPanelStore.getState(), "openFile");
+    await using screen = await renderText(
+      "Plain `plain_symbol` vs [`BaseAgentLoop`](/tmp/project/src/loop.py:697) and [**`StoppableLoop`**](/tmp/project/src/stop.py:45) and [`self.tool_client.call`](/tmp/project/src/loop.py:623) and [see `other.ts`](/tmp/project/src/loop.py:10) and [`a` and `b`](/tmp/project/src/loop.py:11).",
+      { threadRef },
+    );
+
+    const links = [
+      ...screen.container.querySelectorAll<HTMLAnchorElement>("a.chat-markdown-file-link"),
+    ];
+    expect(links).toHaveLength(5);
+    expect(links.map((link) => link.textContent)).toEqual([
+      "BaseAgentLoop",
+      "StoppableLoop",
+      "self.tool_client.call",
+      "see other.ts",
+      "a and b",
+    ]);
+    expect(links.map((link) => link.dataset.customLabel)).toEqual([
+      "code",
+      "code",
+      "code",
+      "text",
+      "text",
+    ]);
+    for (const link of links) {
+      expect(link.querySelector("a")).toBeNull();
+    }
+
+    const plainCode = screen.container.querySelector<HTMLElement>("p > code")!;
+    const linkedCode = links[0]!.querySelector<HTMLElement>("code")!;
+    expect(getComputedStyle(links[0]!).textDecorationLine).toBe("none");
+    expect(getComputedStyle(links[1]!).textDecorationLine).toBe("none");
+    expect(getComputedStyle(links[3]!).textDecorationLine).toContain("underline");
+    expect(getComputedStyle(linkedCode).color).toBe(getComputedStyle(links[0]!).color);
+    expect(getComputedStyle(linkedCode).backgroundColor).not.toBe(
+      getComputedStyle(plainCode).backgroundColor,
+    );
+
+    await act(async () => links[0]!.click());
+    expect(openFile).toHaveBeenCalledExactlyOnceWith(threadRef, "src/loop.py", 697);
+  });
+
+  it("keeps file-named links and bare code paths as standard file chips", async () => {
+    setup();
+    for (const source of [
+      "[loop.py:697](/tmp/project/src/loop.py:697)",
+      "[`loop.py:697`](/tmp/project/src/loop.py:697)",
+      "`/tmp/project/src/loop.py:697`",
+    ]) {
+      await using screen = await renderText(source, { threadRef });
+      const link = screen.container.querySelector<HTMLAnchorElement>("a.chat-markdown-file-link")!;
+      expect(link).not.toBeNull();
+      expect(link.dataset.customLabel).toBeUndefined();
+      expect(link.querySelector('[data-slot="context-chip-label"]')).not.toBeNull();
+      expect(link.textContent).toMatch(/^loop\.py · (?:.* · )?L697$/);
+    }
+  });
+
+  it("selects the whole line on triple-click beside a custom-labeled code link", async () => {
+    setup();
+    await using screen = await renderText(
+      "Before [`BaseAgentLoop`](/tmp/project/src/loop.py:697) and [the retry loop](/tmp/project/src/loop.py:710) after words",
+      { threadRef },
+    );
+    const paragraph = screen.container.querySelector("p")!;
+    const textNode = [...paragraph.childNodes].find((node) =>
+      node.textContent?.includes("Before"),
+    )!;
+    const range = document.createRange();
+    range.setStart(textNode, 0);
+    range.setEnd(textNode, "Before".length);
+    const wordBox = range.getBoundingClientRect();
+    const paragraphBox = paragraph.getBoundingClientRect();
+    window.getSelection()?.removeAllRanges();
+    await userEvent.tripleClick(paragraph, {
+      position: {
+        x: wordBox.left - paragraphBox.left + wordBox.width / 2,
+        y: wordBox.top - paragraphBox.top + wordBox.height / 2,
+      },
+    });
+    expect(window.getSelection()?.toString().trim()).toBe(paragraph.textContent?.trim());
+  });
+
+  it("shows line ranges in custom-labeled link tooltips and updates while streaming", async () => {
+    setup();
+    await using screen = await render(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        threadRef={threadRef}
+        text="See [loop](/tmp/project/src/loop.py:697-710)"
+        isStreaming
+      />,
+    );
+    expect(screen.container.querySelector("a.chat-markdown-file-link")?.textContent).toBe("loop");
+
+    await screen.rerender(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        threadRef={threadRef}
+        text="See [loop body](/tmp/project/src/loop.py:697-710)"
+        isStreaming={false}
+      />,
+    );
+    const link = screen.container.querySelector<HTMLAnchorElement>("a.chat-markdown-file-link")!;
+    expect(link.textContent).toBe("loop body");
+    await userEvent.hover(link);
+    await expect.element(page.getByText("/tmp/project/src/loop.py:697–710")).toBeVisible();
+  });
+
+  it("renders a custom-labeled button fallback when no primary file action is available", async () => {
+    setup();
+    await using screen = await renderText(
+      "Open [the handler](/tmp/project/src/handler.ts:5) for details.",
+    );
+
+    const button = screen.container.querySelector<HTMLButtonElement>(
+      "button.chat-markdown-file-link",
+    )!;
+    expect(button).not.toBeNull();
+    expect(button.dataset.customLabel).toBe("text");
+    expect(button.textContent).toBe("the handler");
+    expect(screen.container.textContent).toBe("Open the handler for details.");
+  });
+});

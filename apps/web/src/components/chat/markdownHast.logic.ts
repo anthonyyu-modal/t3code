@@ -40,3 +40,47 @@ export function hastHasText(node: unknown): boolean {
   }
   return "children" in node && Array.isArray(node.children) && node.children.some(hastHasText);
 }
+
+const INLINE_CODE_WRAPPER_TAGS = new Set(["strong", "em", "del"]);
+
+export function isSoleInlineCodeNode(node: unknown): boolean {
+  let current: unknown = node;
+  while (
+    current &&
+    typeof current === "object" &&
+    "children" in current &&
+    Array.isArray(current.children)
+  ) {
+    const meaningful = current.children.filter(
+      (child) =>
+        !(
+          child &&
+          typeof child === "object" &&
+          "type" in child &&
+          child.type === "text" &&
+          "value" in child &&
+          typeof child.value === "string" &&
+          child.value.trim().length === 0
+        ),
+    );
+    if (meaningful.length !== 1) return false;
+    const only = meaningful[0];
+    if (
+      !only ||
+      typeof only !== "object" ||
+      !("type" in only) ||
+      only.type !== "element" ||
+      !("tagName" in only) ||
+      typeof only.tagName !== "string"
+    ) {
+      return false;
+    }
+    if (only.tagName === "code") return true;
+    if (INLINE_CODE_WRAPPER_TAGS.has(only.tagName)) {
+      current = only;
+      continue;
+    }
+    return false;
+  }
+  return false;
+}

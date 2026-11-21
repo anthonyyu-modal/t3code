@@ -2100,6 +2100,42 @@ code {
   display: inline;
 }
 
+.chat-markdown-file-link[data-custom-label] {
+  display: inline;
+  overflow-x: visible;
+  text-overflow: clip;
+  white-space: normal;
+  text-align: inherit;
+  font-weight: 500;
+  color: var(--context-chip-message-ink, var(--context-chip-mention));
+  text-decoration-line: underline;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-skip-ink: auto;
+  transition: text-decoration-color 150ms ease;
+}
+
+.chat-markdown.user-message-markdown .chat-markdown-file-link[data-custom-label="text"] {
+  text-decoration-color: color-mix(in srgb, currentcolor 45%, transparent);
+}
+
+.chat-markdown-file-link[data-custom-label]:is(:hover, :focus-visible) {
+  text-decoration-color: currentcolor;
+}
+
+.chat-markdown-file-link[data-custom-label="code"] {
+  font-weight: inherit;
+  text-decoration-line: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-markdown-file-link[data-custom-label],
+  .chat-markdown-file-link[data-custom-label] code {
+    transition: none;
+  }
+}
+
 /* File links and context chips own their color and focus ring. */
 .chat-markdown a:not(.chat-markdown-file-link, :has([data-slot="context-chip-label"])) {
   color: var(--info-foreground);
@@ -2194,7 +2230,7 @@ code {
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   background: color-mix(in srgb, var(--contrast-foreground) 10%, transparent);
-  padding: 0.1em 0.35em;
+  padding: 0.2em 0.35em 0.1em;
   color: var(--contrast-foreground);
   font-size: 0.85em;
 }
@@ -2202,6 +2238,21 @@ code {
 .chat-markdown.user-message-markdown :not(pre) > code {
   background: color-mix(in srgb, var(--contrast-message-foreground) 10%, transparent);
   color: var(--contrast-message-foreground);
+}
+
+:is(html[data-theme-id], :root) .chat-markdown .chat-markdown-file-link[data-custom-label] code {
+  font-weight: 400;
+  color: inherit;
+  background-color: color-mix(in srgb, currentcolor 10%, transparent);
+  border-color: transparent;
+  transition: background-color 150ms ease;
+}
+
+:is(html[data-theme-id], :root)
+  .chat-markdown
+  .chat-markdown-file-link[data-custom-label]:is(:hover, :focus-visible)
+  code {
+  background-color: color-mix(in srgb, currentcolor 18%, transparent);
 }
 
 .chat-markdown strong {
