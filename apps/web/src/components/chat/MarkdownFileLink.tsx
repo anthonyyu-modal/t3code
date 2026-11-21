@@ -7,7 +7,7 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import type { ContextMenuSource, EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
-import { memo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { memo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { useGT } from "gt-react";
 import { FolderIcon } from "lucide-react";
 
@@ -20,6 +20,7 @@ import { documentChipKindForFileName } from "../../pierre-icons";
 import { ContextChip } from "../ContextChip";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { SharedTooltipTrigger, useSharedTooltip, withSharedTooltip } from "../ui/shared-tooltip";
+import { MarkdownLinkContext } from "./ChatMarkdownMedia";
 import { FileTagChipContent } from "./FileTagChip";
 import {
   hasMarkdownFilePrimaryAction,
@@ -27,7 +28,7 @@ import {
   shouldUseMarkdownFileBrowserPrimaryAction,
 } from "./MarkdownFileLink.logic";
 import { reportMarkdownActionFailure } from "./markdownActionFailure";
-import { WorkspaceEntryTooltip } from "./WorkspaceEntryIcon";
+import { WorkspaceEntryIcon, WorkspaceEntryTooltip } from "./WorkspaceEntryIcon";
 
 interface MarkdownFileLinkProps {
   environmentId: EnvironmentId | null;
@@ -38,7 +39,10 @@ interface MarkdownFileLinkProps {
   workspaceRelativePath: string | null;
   panelPath: string | null;
   line?: number | undefined;
+  endLine?: number | undefined;
   label: string;
+  customLabel?: ReactNode | undefined;
+  customLabelKind?: "text" | "code" | undefined;
   copyMarkdown: string;
   theme: "light" | "dark";
   threadRef?: ScopedThreadRef | undefined;
@@ -64,7 +68,10 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
   workspaceRelativePath,
   panelPath,
   line,
+  endLine,
   label,
+  customLabel,
+  customLabelKind,
   copyMarkdown,
   theme,
   threadRef,
@@ -331,16 +338,63 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
     canOpenInPanel,
   });
   const chipKind = documentChipKindForFileName(iconPath) ?? "mention";
+  const hasCustomLabel = customLabel !== undefined;
+  const tooltipPath =
+    line !== undefined && endLine !== undefined && endLine > line
+      ? `${targetPath}–${endLine}`
+      : targetPath;
 
-  const tooltipContent = (
-    <WorkspaceEntryTooltip path={iconPath} label={targetPath} environmentId={environmentId} />
-  );
-  const sharedTooltip = useSharedTooltip({
-    render: () => tooltipContent,
-    contentKey: `${iconPath}\u0000${targetPath}`,
-    variant: "code",
-  });
-  const chip = hasPrimaryAction ? (
+  const handlePrimaryClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (onOpen && shouldOpenMarkdownFileLinkInEditor(event)) {
+      handleOpenInEditor();
+      return;
+    }
+    if (useBrowserPrimaryAction) {
+      handleOpenInBrowser();
+      return;
+    }
+    handleOpenInFilePreview();
+  };
+
+  const trigger = hasCustomLabel ? (
+    hasPrimaryAction ? (
+      <a
+        {...nativeDrag}
+        href={href}
+        data-slot="context-chip"
+        data-custom-label={customLabelKind ?? "text"}
+        className={cn(
+          MARKDOWN_FILE_LINK_CLASS_NAME,
+          "cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current",
+        )}
+        data-markdown-copy={copyMarkdown}
+        onClick={handlePrimaryClick}
+        onContextMenu={handleContextMenu}
+      >
+        <MarkdownLinkContext value>{customLabel}</MarkdownLinkContext>
+      </a>
+    ) : (
+      <button
+        {...nativeDrag}
+        type="button"
+        data-slot="context-chip"
+        data-custom-label={customLabelKind ?? "text"}
+        aria-label={gt("File options for {label}", { label })}
+        aria-haspopup="menu"
+        className={cn(
+          MARKDOWN_FILE_LINK_CLASS_NAME,
+          "cursor-pointer select-text rounded-sm focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-current",
+        )}
+        data-markdown-copy={copyMarkdown}
+        onClick={handleContextMenu}
+        onContextMenu={handleContextMenu}
+      >
+        <MarkdownLinkContext value>{customLabel}</MarkdownLinkContext>
+      </button>
+    )
+  ) : hasPrimaryAction ? (
     <ContextChip
       {...nativeDrag}
       kind={chipKind}
@@ -348,19 +402,7 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
       render={<a href={href} />}
       className={MARKDOWN_FILE_LINK_CLASS_NAME}
       data-markdown-copy={copyMarkdown}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (onOpen && shouldOpenMarkdownFileLinkInEditor(event)) {
-          handleOpenInEditor();
-          return;
-        }
-        if (useBrowserPrimaryAction) {
-          handleOpenInBrowser();
-          return;
-        }
-        handleOpenInFilePreview();
-      }}
+      onClick={handlePrimaryClick}
       onContextMenu={handleContextMenu}
       onKeyDown={openContextMenuFromKeyboard}
     >
@@ -399,10 +441,32 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
       />
     </ContextChip>
   );
-  if (sharedTooltip) return withSharedTooltip(chip, sharedTooltip);
+
+  const tooltipContent = hasCustomLabel ? (
+    <span className="flex min-w-0 items-start gap-1.5">
+      <span className="mt-[0.28em] shrink-0 [&>svg]:size-[1.05em]">
+        {isAppBundle ? (
+          <AppBundleIcon environmentId={environmentId} path={iconPath} />
+        ) : (
+          <WorkspaceEntryIcon path={iconPath} environmentId={environmentId} theme={theme} />
+        )}
+      </span>
+      <span className="min-w-0">
+        <WorkspaceEntryTooltip path={iconPath} label={tooltipPath} environmentId={environmentId} />
+      </span>
+    </span>
+  ) : (
+    <WorkspaceEntryTooltip path={iconPath} label={tooltipPath} environmentId={environmentId} />
+  );
+  const sharedTooltip = useSharedTooltip({
+    render: () => tooltipContent,
+    contentKey: `${hasCustomLabel ? "custom" : "chip"}\u0000${iconPath}\u0000${tooltipPath}`,
+    variant: "code",
+  });
+  if (sharedTooltip) return withSharedTooltip(trigger, sharedTooltip);
   return (
     <SharedTooltipTrigger
-      render={chip}
+      render={trigger}
       label={tooltipContent}
       variant="code"
       className="pointer-events-auto"
@@ -422,7 +486,10 @@ function areMarkdownFileLinkPropsEqual(
     previous.workspaceRelativePath === next.workspaceRelativePath &&
     previous.panelPath === next.panelPath &&
     previous.line === next.line &&
+    previous.endLine === next.endLine &&
     previous.label === next.label &&
+    previous.customLabel === next.customLabel &&
+    previous.customLabelKind === next.customLabelKind &&
     previous.copyMarkdown === next.copyMarkdown &&
     previous.theme === next.theme &&
     previous.threadRef === next.threadRef &&

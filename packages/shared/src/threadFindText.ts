@@ -119,7 +119,7 @@ function markdownThreadFindText(
     if (text.trim()) segments.push(text);
     text = "";
   };
-  const visit = (node: TextTree, inPre = false, inlineSkills = false) => {
+  const visit = (node: TextTree, inPre = false, inlineSkills = false, inLink = false) => {
     const href = node.properties?.href ?? node.properties?.src;
     if (userMessage && typeof href === "string" && parseComposerContextHref(href)) {
       flush();
@@ -153,6 +153,7 @@ function markdownThreadFindText(
       } else if (
         node.tagName === "code" &&
         !inPre &&
+        !inLink &&
         node.properties?.dataInlineCode !== undefined
       ) {
         candidate = inlineCodeFilePathCandidate(
@@ -164,8 +165,11 @@ function markdownThreadFindText(
         const labelText = (node: TextTree): string =>
           node.value ?? (node.children ?? []).map(labelText).join("");
         const label = labelText(node);
-        if (node.tagName === "a" && !isMarkdownFileLinkLabel(label, candidate)) text += `${label} `;
-        text += fileLinkLabel(resolved.position, parentSuffixes);
+        if (node.tagName === "a" && !isMarkdownFileLinkLabel(label, candidate)) {
+          text += label;
+        } else {
+          text += fileLinkLabel(resolved.position, parentSuffixes);
+        }
         return;
       }
     }
@@ -198,7 +202,7 @@ function markdownThreadFindText(
         ? false
         : inlineSkills || node.tagName === "p" || node.tagName === "li";
     for (const child of node.children ?? [])
-      visit(child, inPre || node.tagName === "pre", renderSkills);
+      visit(child, inPre || node.tagName === "pre", renderSkills, inLink || node.tagName === "a");
     if (block) flush();
   };
   visit(tree);
