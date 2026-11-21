@@ -223,7 +223,12 @@ import { MarkdownExternalLinkContent } from "./chat/MarkdownExternalLink";
 import { MarkdownFileLink } from "./chat/MarkdownFileLink";
 import { canUseMarkdownFileShellActions } from "./chat/MarkdownFileLink.logic";
 import { handleMarkdownFragmentClick } from "./chat/markdownFragments";
-import { hastHasText, hastPlainTextDeep, plainHastText } from "./chat/markdownHast.logic";
+import {
+  hastHasText,
+  hastPlainTextDeep,
+  isSoleInlineCodeNode,
+  plainHastText,
+} from "./chat/markdownHast.logic";
 import {
   extractCodeBlock,
   extractFenceLanguage,
@@ -986,6 +991,8 @@ function useChatMarkdownState(
     fileLinkMeta: MarkdownFileLinkMeta,
     copyMarkdown: string,
     mediaSource?: string,
+    customLabel?: ReactNode,
+    customLabelKind?: "text" | "code",
   ) => {
     const resolveHostPath = () =>
       resolveMarkdownFileHostPath({
@@ -1023,6 +1030,7 @@ function useChatMarkdownState(
         workspaceRelativePath={fileLinkMeta.workspaceRelativePath}
         panelPath={isAppBundle ? null : panelPath}
         line={fileLinkMeta.line}
+        endLine={fileLinkMeta.endLine}
         label={fileLinkLabel(
           {
             path: fileLinkMeta.filePath,
@@ -1032,6 +1040,8 @@ function useChatMarkdownState(
           },
           fileLinkParentSuffixByPath,
         )}
+        customLabel={customLabel}
+        customLabelKind={customLabelKind}
         copyMarkdown={copyMarkdown}
         theme={resolvedTheme}
         threadRef={threadRef}
@@ -1597,25 +1607,28 @@ const CHAT_MARKDOWN_COMPONENTS = {
       source.startsWith("[") && source.includes("](")
         ? source
         : `[${(label || fileLinkMeta.basename).replace(/[\\[\]]/g, "\\$&")}](${normalizedHref})`;
-    const chip = fileLinkChip(fileLinkMeta, copyMarkdown, normalizedHref);
-    return isMarkdownFileLinkLabel(label, normalizedHref) ? (
-      chip
-    ) : (
-      <span data-markdown-copy={copyMarkdown}>
-        <span className="whitespace-normal">{children} </span>
-        {chip}
-      </span>
+    if (isMarkdownFileLinkLabel(label, normalizedHref)) {
+      return fileLinkChip(fileLinkMeta, copyMarkdown, normalizedHref);
+    }
+    return fileLinkChip(
+      fileLinkMeta,
+      copyMarkdown,
+      normalizedHref,
+      children,
+      isSoleInlineCodeNode(node) ? "code" : "text",
     );
   },
   code: function MarkdownCode({ node, children, className, ...props }) {
     const { cwd, imageBaseDir, inlineCodeFileLinkMetaByText, fileLinkChip } = use(
       ChatMarkdownRendererContext,
     );
+    const insideLink = use(MarkdownLinkContext);
     if (node?.properties?.dataInlineCode != null) {
       const codeText = nodeToPlainText(children);
-      const fileLinkMeta =
-        inlineCodeFileLinkMetaByText.get(codeText.trim()) ??
-        resolveInlineCodeFileLinkMeta(codeText, cwd, imageBaseDir ?? cwd);
+      const fileLinkMeta = insideLink
+        ? null
+        : (inlineCodeFileLinkMetaByText.get(codeText.trim()) ??
+          resolveInlineCodeFileLinkMeta(codeText, cwd, imageBaseDir ?? cwd));
       if (fileLinkMeta) {
         return fileLinkChip(
           fileLinkMeta,

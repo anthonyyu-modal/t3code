@@ -2,10 +2,54 @@ import type { ProviderDriverKind, ProviderReplayTranscript } from "@t3tools/cont
 
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 
+const RECORDED_RUNTIME_FILE_LINK_PATTERN =
+  /(<runtime_info>[\s\S]*?)Link every other file you cite or produce by its absolute path,[\s\S]*?T3 Code's files viewer\.(<\/runtime_info>)/;
+
+const CURRENT_RUNTIME_FILE_LINK_GUIDANCE =
+  /Link every other file you cite or produce by its absolute path,[\s\S]*?T3 Code's files viewer\./.exec(
+    buildRuntimeInstructions({ harness: "x", pullRequestLinking: false }),
+  )?.[0];
+
+function refreshRecordedRuntimeInfo(text: string): string {
+  if (!CURRENT_RUNTIME_FILE_LINK_GUIDANCE) return text;
+  return text.replace(
+    RECORDED_RUNTIME_FILE_LINK_PATTERN,
+    `$1${CURRENT_RUNTIME_FILE_LINK_GUIDANCE}$2`,
+  );
+}
+
 export function materializeReplayTranscriptRuntimeInstructions(
   transcript: ProviderReplayTranscript,
   runtime: { readonly driver: ProviderDriverKind; readonly model: string },
 ): ProviderReplayTranscript {
+  if (runtime.driver === "muse") {
+    return {
+      ...transcript,
+      entries: transcript.entries.map((entry) => {
+        if (entry.type !== "expect_outbound") return entry;
+        const frame = asFrame(entry.frame);
+        if (
+          frame?.method !== "turn/start" ||
+          !isRecord(frame.params) ||
+          !Array.isArray(frame.params.input)
+        ) {
+          return entry;
+        }
+        let changed = false;
+        const input = frame.params.input.map((part) => {
+          const text = promptPartText(part);
+          if (text === undefined) return part;
+          const refreshed = refreshRecordedRuntimeInfo(text);
+          if (refreshed === text) return part;
+          changed = true;
+          return { ...(part as Record<string, unknown>), text: refreshed };
+        });
+        return changed
+          ? { ...entry, frame: { ...frame, params: { ...frame.params, input } } }
+          : entry;
+      }),
+    };
+  }
   const harness =
     runtime.driver === "cursor"
       ? "Cursor"
@@ -316,7 +360,25 @@ export function materializeReplayTranscriptRuntimeInstructions(
           compact: false,
           compactionsAtSend: compactionCounts.get(promptSessionId) ?? 0,
         };
-        if (!resend) return entry;
+        if (!resend) {
+          if (recordedNotes !== undefined) {
+            const refreshed = refreshRecordedRuntimeInfo(recordedNotes);
+            if (refreshed !== recordedNotes) {
+              const last = prompt.at(-1) as Record<string, unknown>;
+              return {
+                ...entry,
+                frame: {
+                  ...frame,
+                  params: {
+                    ...frame.params,
+                    prompt: [...prompt.slice(0, -1), { ...last, text: refreshed }],
+                  },
+                },
+              };
+            }
+          }
+          return entry;
+        }
         return {
           ...entry,
           frame: {
