@@ -15,6 +15,8 @@ describe("buildRuntimeInstructions", () => {
     });
 
     assert.include(instructions, "through the Antigravity harness, as gemini-3.8-flash.");
+    assert.include(instructions, "[`symbol`](/abs/path/http.ts:42)");
+    assert.include(instructions, "[descriptive text](/abs/path/http.ts:42)");
     assert.notInclude(instructions, "<pull_request_linking>");
   });
 
