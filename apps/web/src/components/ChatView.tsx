@@ -65,6 +65,7 @@ import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { freshSessionBannerItem } from "./chat/ComposerFreshSession";
 import { heldComposerSendBannerItem } from "./chat/ComposerHeldSendBanner";
 import { armFreshSession, disarmFreshSession, useFreshSessionArmed } from "./chat/freshSessionArms";
+import { providerSupportsSideChat } from "./chat/sideChatArms";
 import { cancelHeldComposerSend, useComposerSendHeld } from "./chat/preparingComposerImages";
 import { useUsageLimitsPanel } from "./chat/useUsageLimitsPanel";
 import { useWorktreeSetup } from "./chat/useWorktreeSetup";
@@ -3025,12 +3026,23 @@ export default function ChatView(props: ChatViewProps) {
   // A delegated task is a remote thread's subagent.
   const isSubagentThread =
     activeThread?.lineage.relationshipToParent === "subagent" || delegatedFrom !== null;
+  const activeProviderSession =
+    activeProviderThread?.providerSessionId != null
+      ? serverProjection?.providerSessions.find(
+          (session) =>
+            session.id === activeProviderThread.providerSessionId &&
+            (activeProviderInstanceId === null ||
+              session.providerInstanceId === activeProviderInstanceId),
+        )
+      : undefined;
+  const sideChatSupportedByProvider = providerSupportsSideChat(activeProviderSession?.capabilities);
   // Side chats do not nest or start from subagents, and older servers would fork a listed thread.
   const sideChatsOffered =
     !embedded &&
     canOperateThread &&
     activeThread?.lineage.sideChat !== true &&
     !isSubagentThread &&
+    sideChatSupportedByProvider &&
     serverConfig?.environment.capabilities.sideChats === true;
   const sideChat = useSideChat({
     threadRef: sideChatsOffered && isServerThread ? activeThreadRef : null,
@@ -3060,15 +3072,17 @@ export default function ChatView(props: ChatViewProps) {
           ? gt("Side chats are not ready yet. Try again in a moment.")
           : serverConfig.environment.capabilities.sideChats !== true
             ? gt("Update this environment's T3 Code server to use side chats.")
-            : sideChatsOffered && !isServerThread
-              ? gt("Side chats start after the first message.")
-              : sideChat.available &&
-                  orchestrationV2WorktreePending(
-                    activeThread?.worktreePath ?? null,
-                    serverProjection?.runs ?? [],
-                  )
-                ? gt("Available once the thread's worktree is set up.")
-                : null;
+            : !sideChatSupportedByProvider
+              ? "This provider does not support side chats."
+              : sideChatsOffered && !isServerThread
+                ? gt("Side chats start after the first message.")
+                : sideChat.available &&
+                    orchestrationV2WorktreePending(
+                      activeThread?.worktreePath ?? null,
+                      serverProjection?.runs ?? [],
+                    )
+                  ? gt("Available once the thread's worktree is set up.")
+                  : null;
   const openSideChatStable = useStableCallback(() => void sideChat.open());
   const openSurfaceInMainView = useOpenSurfaceInMainView(activeThreadRef);
   const sendSideChatStable = useStableCallback(sideChat.open);
