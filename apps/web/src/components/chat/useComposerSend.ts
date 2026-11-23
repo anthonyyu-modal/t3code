@@ -4,6 +4,7 @@ import { m } from "~/i18n/messages";
 import { isClearComposerCommand, parseSideChatCommand } from "@t3tools/shared/composerTrigger";
 import { readWorktreeBaseBranch } from "../../worktreeRepositoryChoiceStore";
 import { armFreshSession, disarmFreshSession, readFreshSessionArm } from "./freshSessionArms";
+import { armSideChat, disarmSideChat, readSideChatArm } from "./sideChatArms";
 import {
   mergeDirectPreviewAnnotation,
   resolveBackgroundDraftWorkspaceOptions,
@@ -456,12 +457,26 @@ export function useComposerSend(input: ComposerSendInput) {
       : composerRef.current?.getSendContext();
     const isCurrentRouteThread = () => currentRouteThreadKeyRef.current === routeThreadKey;
     // `/side` beats an open question and a plan follow-up, which would send the text to main.
-    const sideChatCommand =
+    const sideChatArm = readSideChatArm(routeThreadKey);
+    const typedSideChatCommand =
       sendCtx && !directAnnotation && !queuedRunEdit.isEditing
         ? parseSideChatCommand(promptAtSend)
         : null;
     const answeringQuestion =
       Boolean(activePendingUserInput) && sendCtx?.answeringPendingUserInput !== false;
+    const toggledSideChat =
+      sideChatArm !== undefined &&
+      sendCtx !== undefined &&
+      !directAnnotation &&
+      !queuedRunEdit.isEditing &&
+      !answeringQuestion &&
+      !(
+        freshSessionAvailable &&
+        !draftHasNonPromptContent(composerDraftTarget) &&
+        isClearComposerCommand(promptAtSend)
+      );
+    const sideChatCommand =
+      typedSideChatCommand ?? (toggledSideChat ? { prompt: promptAtSend.trim() } : null);
     const startsSideChat =
       onSideChat !== undefined && sideChatCommand !== null && sideChatDisabledReason === null;
     // An answer responds to the open request rather than starting a turn, so the new-message
@@ -541,6 +556,13 @@ export function useComposerSend(input: ComposerSendInput) {
     }
     // Where side chats are unavailable, `/side` text can still be a literal answer.
     if (sideChatDisabledReason !== null && sideChatCommand && !answeringQuestion) {
+      if (
+        typedSideChatCommand === null &&
+        promptAtSend.trim().length === 0 &&
+        !draftHasNonPromptContent(composerDraftTarget)
+      ) {
+        return;
+      }
       toastManager.add(
         stackedThreadToast({
           type: "warning",
@@ -620,7 +642,10 @@ export function useComposerSend(input: ComposerSendInput) {
     if (onSideChat && sendCtx && sideChatCommand && sideChatDisabledReason === null) {
       const replyTo =
         useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.replyTo ?? null;
-      const prompt = withReplyReference(sideChatCommand.prompt, replyTo);
+      const latestTypedSideChat = parseSideChatCommand(promptAtSend);
+      const sideChatPrompt =
+        latestTypedSideChat !== null ? latestTypedSideChat.prompt : promptAtSend.trim();
+      const prompt = withReplyReference(sideChatPrompt, replyTo);
       const { sendableTerminalContexts, hasSendableContent } = deriveComposerSendState({
         prompt,
         imageCount: sendCtx.images.length + sendCtx.files.length,
@@ -632,6 +657,8 @@ export function useComposerSend(input: ComposerSendInput) {
           sendCtx.threadContexts.length +
           sendCtx.environmentContexts.length,
       });
+      // Unlike explicit `/side`, the toggle alone should not open an empty side chat on bare Enter.
+      if (!hasSendableContent && latestTypedSideChat === null) return;
       // An answer's text and attachments live in the question's draft, apart from this one.
       if (
         sendCtx.answeringPendingUserInput &&
@@ -670,6 +697,7 @@ export function useComposerSend(input: ComposerSendInput) {
       if (capabilities.supportsAttachmentUploads) startDraftAttachmentUploads(snapshot.attachments);
       // Cleared at send, like a regular message, so nothing in it can change or vanish mid-start.
       if (sendsDraft) {
+        if (sideChatArm !== undefined) disarmSideChat(routeThreadKey, sideChatArm);
         clearComposerDraftContent(composerDraftTarget);
         if (currentRouteThreadKeyRef.current === routeThreadKey) {
           promptRef.current = "";
@@ -724,8 +752,16 @@ export function useComposerSend(input: ComposerSendInput) {
           releaseDraftAttachments(snapshot.attachments);
         }
         // A restore clones the images first, so the sent previews can go either way.
-        if (!startedOk)
+        if (!startedOk) {
           restoreComposerDraft(composerDraftTarget, { ...snapshot, draftText: promptAtSend });
+          if (
+            toggledSideChat &&
+            latestTypedSideChat === null &&
+            readSideChatArm(routeThreadKey) === undefined
+          ) {
+            armSideChat(routeThreadKey);
+          }
+        }
         for (const image of snapshot.images) {
           if (image.previewUrl.startsWith("blob:")) URL.revokeObjectURL(image.previewUrl);
         }
@@ -739,12 +775,15 @@ export function useComposerSend(input: ComposerSendInput) {
         return;
       }
       // Answering a question, the composer shows the answer, which lives apart from this draft.
-      if (startedOk && currentRouteThreadKeyRef.current === routeThreadKey) {
-        if (!sendCtx.answeringPendingUserInput && promptRef.current === promptAtSend) {
-          setComposerDraftPrompt(composerDraftTarget, "");
-          promptRef.current = "";
+      if (startedOk) {
+        if (sideChatArm !== undefined) disarmSideChat(routeThreadKey, sideChatArm);
+        if (currentRouteThreadKeyRef.current === routeThreadKey) {
+          if (!sendCtx.answeringPendingUserInput && promptRef.current === promptAtSend) {
+            setComposerDraftPrompt(composerDraftTarget, "");
+            promptRef.current = "";
+          }
+          composerRef.current?.resetCursorState();
         }
-        composerRef.current?.resetCursorState();
       }
       return;
     }

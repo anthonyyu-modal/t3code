@@ -61,6 +61,7 @@ interface ComposerPrimaryActionsProps {
   canResume?: boolean;
   preserveComposerFocusOnPointerDown?: boolean;
   isEditingQueuedMessage?: boolean;
+  isSideChatMode?: boolean;
   onSubmitMessage?: MouseEventHandler<HTMLButtonElement>;
   onResume?: () => void;
   onPreviousPendingQuestion: () => void;
@@ -254,6 +255,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   canResume = false,
   preserveComposerFocusOnPointerDown = false,
   isEditingQueuedMessage = false,
+  isSideChatMode = false,
   onSubmitMessage,
   onResume,
   onPreviousPendingQuestion,
@@ -394,13 +396,15 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     ? gt("Resume thread")
     : isEditingQueuedMessage
       ? gt("Update queued message")
-      : compactsBeforeSend
-        ? gt("Compact and send")
-        : isQueuing
-          ? gt("Queue message")
-          : isRunning
-            ? gt("Steer message")
-            : gt("Submit message");
+      : isSideChatMode
+        ? "Send in side chat"
+        : compactsBeforeSend
+          ? gt("Compact and send")
+          : isQueuing
+            ? gt("Queue message")
+            : isRunning
+              ? gt("Steer message")
+              : gt("Submit message");
   const submitStatus = isEnvironmentUnavailable
     ? gt("Environment disconnected")
     : isSendHeld
