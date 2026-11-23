@@ -73,6 +73,7 @@ export function useComposerMenuItems({
   pullRequestRepository,
   threadPullRequests,
   sideChatAvailable,
+  sideChatActive = false,
   sideChatDisabledReason,
   freshSessionAvailable,
   compactSlashCommandAvailable,
@@ -93,6 +94,7 @@ export function useComposerMenuItems({
   readonly pullRequestRepository: string | null;
   readonly threadPullRequests: ReadonlyArray<ThreadPullRequestLink> | undefined;
   readonly sideChatAvailable: boolean;
+  readonly sideChatActive?: boolean;
   readonly sideChatDisabledReason: string | null;
   readonly freshSessionAvailable: boolean;
   readonly compactSlashCommandAvailable: boolean;
@@ -269,7 +271,12 @@ export function useComposerMenuItems({
                 type: "slash-command",
                 command: "side",
                 label: "/side",
-                description: sideChatDisabledReason ?? gt("Ask a side question in a new side chat"),
+                description:
+                  sideChatDisabledReason ??
+                  (sideChatActive
+                    ? // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+                      "Turn off side chat mode"
+                    : gt("Ask a side question in a new side chat")),
               },
               {
                 id: "slash:btw",
