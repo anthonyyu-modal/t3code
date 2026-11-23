@@ -612,7 +612,7 @@ describe("extendReplacementRangeForTrailingSpace", () => {
 });
 
 describe("side chat slash commands", () => {
-  it("are not offered after the start of a message", () => {
+  it("stay offered after the start of a message while /clear stays start-only", () => {
     const items = (["side", "btw", "clear", "model"] as const).map((command) => ({
       id: `slash:${command}`,
       type: "slash-command" as const,
@@ -621,6 +621,8 @@ describe("side chat slash commands", () => {
       description: "",
     }));
     expect(slashCommandItemsForPromptPosition(items, false).map((item) => item.id)).toEqual([
+      "slash:side",
+      "slash:btw",
       "slash:model",
     ]);
   });

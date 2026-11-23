@@ -63,7 +63,7 @@ import * as Schema from "effect/Schema";
 import { formatComposerModelMention } from "@t3tools/client-runtime/composer-model-mentions";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
+import { parseSideChatCommand, serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { type FolderDropTarget, folderDropTarget, resolveDroppedFolderPath } from "./folderDrop";
 import { splitTransferredFiles } from "./workspaceFileDrop";
 import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
@@ -326,6 +326,13 @@ import { ComposerControlsBar } from "./ComposerControlsBar";
 import { composerCommandKeyHandler } from "./composerCommandKey";
 import { promptSuggestionToAccept, usePromptSuggestion } from "./usePromptSuggestion";
 import { useFreshSessionArmed } from "./freshSessionArms";
+import { ComposerSideChatToggle } from "./ComposerSideChatToggle";
+import {
+  armSideChat,
+  disarmSideChat,
+  stripSideChatCommandPrefix,
+  useSideChatArmed,
+} from "./sideChatArms";
 
 function consumePasteAsTextShortcut(deadline: { current: number }): boolean {
   const armed = Date.now() <= deadline.current;
@@ -1254,6 +1261,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerPreviewAnnotations.length === 0 &&
     composerReviewComments.length === 0;
   const linkedEnvironments = useLinkedEnvironments(environmentId);
+  const sideChatThreadKey = scopedThreadKey(routeThreadRef);
+  const sideChatArmed = useSideChatArmed(sideChatThreadKey);
+  const sideChatToggleOffered =
+    props.sideChatAvailable === true && !isEditingQueuedMessage && !activePendingProgress;
+  const sideChatEnabled = sideChatToggleOffered && (props.sideChatDisabledReason ?? null) === null;
+  const typedSideChatCommand =
+    !isLiteralPendingAnswer && !isEditingQueuedMessage ? parseSideChatCommand(prompt) : null;
+  const sideChatModeActive = sideChatEnabled && (sideChatArmed || typedSideChatCommand !== null);
+
   const {
     items: composerMenuItems,
     isLoading: isComposerMenuLoading,
@@ -1268,6 +1284,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     pullRequestRepository,
     threadPullRequests,
     sideChatAvailable: props.sideChatAvailable === true,
+    sideChatActive: sideChatModeActive,
     sideChatDisabledReason: props.sideChatDisabledReason ?? null,
     freshSessionAvailable: props.onFreshSession !== undefined,
     compactSlashCommandAvailable,
@@ -1369,11 +1386,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const hasMessageToSend = composerSendState.hasSendableContent || messageHasPreparingImages;
   const showResumeAction =
     canResume &&
+    !sideChatModeActive &&
     !composerDraftHasUserContent(composerDraft) &&
     !messageHasPreparingImages &&
     !isEditingQueuedMessage;
   const collapsedComposerPrimaryActionDisabled =
-    phase === "running" ||
+    (phase === "running" && !sideChatModeActive) ||
     isSendBusy ||
     composerSendHeld ||
     isSendDisabled ||
@@ -1385,9 +1403,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ? gt("Sending when ready")
     : showResumeAction
       ? gt("Resume thread")
-      : props.resumeCompactionTokens !== null && !props.keepFullHistory
-        ? gt("Open composer to compact and send")
-        : gt("Send message");
+      : sideChatModeActive
+        ? "Send in side chat"
+        : props.resumeCompactionTokens !== null && !props.keepFullHistory
+          ? gt("Open composer to compact and send")
+          : gt("Send message");
   const showMobilePendingAnswerActions =
     isMobileViewport && !isComposerCollapsedMobile && pendingPrimaryAction !== null;
 
@@ -2161,13 +2181,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
       if (item.command === "side" || item.command === "btw") {
         if (props.sideChatDisabledReason) return;
-        const applied = applyPromptReplacement(
-          trigger.rangeStart,
-          trigger.rangeEnd,
-          `/${item.command} `,
-          { expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd) },
-        );
-        if (applied) setComposerHighlightedItemId(null);
+        const removeEnd =
+          trigger.rangeStart > 0 &&
+          snapshot.value[trigger.rangeStart - 1] === " " &&
+          snapshot.value[trigger.rangeEnd] === " "
+            ? trigger.rangeEnd + 1
+            : trigger.rangeEnd;
+        const applied = applyPromptReplacement(trigger.rangeStart, removeEnd, "", {
+          expectedText: snapshot.value.slice(trigger.rangeStart, removeEnd),
+        });
+        if (applied) {
+          setComposerHighlightedItemId(null);
+          if (sideChatArmed) {
+            disarmSideChat(sideChatThreadKey);
+          } else {
+            armSideChat(sideChatThreadKey);
+          }
+        }
         return;
       }
       return;
@@ -2608,6 +2638,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     phase !== "running" &&
     !isSendBusy &&
     !freshSessionArmed &&
+    !sideChatModeActive &&
     !speechInput.freezesEditor &&
     composerContextRecords.size === 0 &&
     !isComposerApprovalState &&
@@ -2660,6 +2691,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       submitComposer,
       promptSuggestion: offeredPromptSuggestion,
       dismissPromptSuggestion,
+      sideChatArmed: sideChatEnabled && sideChatArmed,
+      disarmSideChat: () => disarmSideChat(sideChatThreadKey),
     })(key, event, isTaskItem);
   };
 
@@ -2814,7 +2847,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // `/feedback` runs with a pending reply too, which then stays in the bar.
   const feedbackRunsLocally =
     codexFeedbackOffered && holdsNoAttachedContext && parseCodexFeedbackCommand(prompt) !== null;
-  const draftRunsLocally = commandRunsLocally || feedbackRunsLocally;
+  const draftRunsLocally = sideChatModeActive || commandRunsLocally || feedbackRunsLocally;
   const replyBannerItems: readonly ComposerBannerStackItem[] = replyTo
     ? [
         {
@@ -3755,6 +3788,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       onPickFolder={canPickLocalFolder ? pickComposerFolderStable : undefined}
     />
   ) : null;
+  const handleToggleSideChatStable = useStableCallback(() => {
+    if (!sideChatEnabled) return;
+    if (sideChatArmed || typedSideChatCommand !== null) {
+      disarmSideChat(sideChatThreadKey);
+      if (typedSideChatCommand !== null) {
+        const stripped = stripSideChatCommandPrefix(promptRef.current);
+        if (stripped !== null) {
+          applyPromptReplacement(0, stripped.prefixLength, "", {
+            expectedText: promptRef.current.slice(0, stripped.prefixLength),
+          });
+        }
+      }
+      focusComposer();
+      return;
+    }
+    armSideChat(sideChatThreadKey);
+    focusComposer();
+  });
+  const composerSideChatToggle = sideChatToggleOffered ? (
+    <ComposerSideChatToggle
+      active={sideChatModeActive}
+      disabledReason={props.sideChatDisabledReason ?? null}
+      onToggle={handleToggleSideChatStable}
+    />
+  ) : null;
   return (
     <form
       ref={composerFormRef}
@@ -3870,11 +3928,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           <div
             ref={composerSurfaceRef}
             data-chat-composer-surface="true"
+            data-side-chat-active={sideChatModeActive ? "true" : undefined}
             data-chat-composer-mobile-collapsed={isComposerCollapsedMobile ? "true" : "false"}
             className={cn(
-              "rounded-2xl transition-[background-color] duration-200",
+              "rounded-2xl transition-[background-color,box-shadow] duration-200",
               "in-data-[thread-context-over]:bg-accent/45 in-data-[thread-context-over]:ring-1 in-data-[thread-context-over]:ring-inset in-data-[thread-context-over]:ring-primary/70",
               isDragOverComposer ? "bg-accent/45 ring-1 ring-inset ring-primary/70" : null,
+              sideChatModeActive
+                ? "bg-info/[0.03] ring-1 ring-inset ring-info/40 dark:bg-info/[0.04]"
+                : null,
               projectSelectionRequired ? "opacity-75" : null,
               composerProviderState.composerSurfaceClassName,
             )}
@@ -3901,6 +3963,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     />
                   ) : showProviderUnavailable ? (
                     gt("Enable a provider in Settings")
+                  ) : sideChatModeActive ? (
+                    // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+                    "Ask a side question…"
                   ) : (
                     gt("Ask anything...")
                   )}
@@ -4084,23 +4149,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onCitationDraftSave={saveCitationDraftToPromptStable}
                     onPaste={onComposerPasteStable}
                     placeholder={
-                      isComposerApprovalState
-                        ? activePendingApproval?.supportsFeedback
-                          ? gt("Send feedback to decline this request")
-                          : gt("Send a message to decline and redirect the agent")
-                        : activePendingProgress
-                          ? isChoiceOnlyPendingQuestion
-                            ? gt("Choose an option above")
-                            : activePendingProgress.activeQuestion?.options.length === 0
-                              ? gt("Type your answer")
-                              : gt(
-                                  "Type your own answer, or leave this blank to use the selected option",
-                                )
-                          : projectSelectionRequired
-                            ? gt("Choose a project above to start a thread")
-                            : showProviderUnavailable
-                              ? gt("Enable a provider in Settings to send a message")
-                              : (offeredPromptSuggestion ?? m(DEFAULT_COMPOSER_PLACEHOLDER))
+                      sideChatModeActive && !projectSelectionRequired && !showProviderUnavailable
+                        ? // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+                          "Ask a side question…"
+                        : isComposerApprovalState
+                          ? activePendingApproval?.supportsFeedback
+                            ? gt("Send feedback to decline this request")
+                            : gt("Send a message to decline and redirect the agent")
+                          : activePendingProgress
+                            ? isChoiceOnlyPendingQuestion
+                              ? gt("Choose an option above")
+                              : activePendingProgress.activeQuestion?.options.length === 0
+                                ? gt("Type your answer")
+                                : gt(
+                                    "Type your own answer, or leave this blank to use the selected option",
+                                  )
+                            : projectSelectionRequired
+                              ? gt("Choose a project above to start a thread")
+                              : showProviderUnavailable
+                                ? gt("Enable a provider in Settings to send a message")
+                                : (offeredPromptSuggestion ?? m(DEFAULT_COMPOSER_PLACEHOLDER))
                     }
                     placeholderSuffix={
                       offeredPromptSuggestion !== null ? (
@@ -4184,8 +4252,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     "hidden sm:flex",
                 )}
               >
-                {composerAttachButton && !dictationTakesFooter ? (
-                  <div className="me-2">{composerAttachButton}</div>
+                {(composerAttachButton || composerSideChatToggle) && !dictationTakesFooter ? (
+                  <div className="me-2 flex shrink-0 items-center gap-1">
+                    {composerAttachButton}
+                    {composerSideChatToggle}
+                  </div>
                 ) : null}
                 <div
                   data-chat-composer-actions="right"
@@ -4242,11 +4313,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     canResume={showResumeAction}
                     preserveComposerFocusOnPointerDown={isMobileViewport}
                     isEditingQueuedMessage={isEditingQueuedMessage}
+                    isSideChatMode={sideChatModeActive}
                     onSubmitMessage={handleSubmitMessageStable}
                     onResume={onResume}
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryActionStable}
-                    compactBeforeSendTokens={props.resumeCompactionTokens}
+                    compactBeforeSendTokens={
+                      sideChatModeActive ? null : props.resumeCompactionTokens
+                    }
                     hideCompactToggle={dictationTakesFooter}
                     keepFullHistory={props.keepFullHistory}
                     onToggleKeepFullHistory={props.onToggleKeepFullHistory}

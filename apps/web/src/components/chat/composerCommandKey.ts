@@ -99,6 +99,8 @@ export function composerCommandKeyHandler(input: {
   /** Predicted next prompt that Tab fills into an empty composer; Escape dismisses it. */
   readonly promptSuggestion: string | null;
   readonly dismissPromptSuggestion: () => void;
+  readonly sideChatArmed?: boolean;
+  readonly disarmSideChat?: () => void;
 }) {
   const {
     keybindings,
@@ -138,6 +140,8 @@ export function composerCommandKeyHandler(input: {
     submitComposer,
     promptSuggestion,
     dismissPromptSuggestion,
+    sideChatArmed = false,
+    disarmSideChat,
   } = input;
 
   // The composer persists across threads. A recall from thread A must not
@@ -240,6 +244,10 @@ export function composerCommandKeyHandler(input: {
       if (event.isComposing || event.keyCode === 229) return false;
       if (!menuIsActive && promptSuggestion !== null && promptRef.current.length === 0) {
         dismissPromptSuggestion();
+        return true;
+      }
+      if (!menuIsActive && sideChatArmed && promptRef.current.length === 0) {
+        disarmSideChat?.();
         return true;
       }
       if (!menuIsActive) return false;
