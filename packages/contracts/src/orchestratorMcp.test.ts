@@ -2,11 +2,13 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 
 import {
+  OrchestratorMcpCreateThreadsInput,
   OrchestratorMcpDelegateTaskInput,
   OrchestratorMcpDelegateTaskResult,
   OrchestratorMcpThreadWaitResult,
 } from "./orchestratorMcp.ts";
 
+const decodeCreateThreadsInput = Schema.decodeUnknownSync(OrchestratorMcpCreateThreadsInput);
 const decodeDelegateTaskInput = Schema.decodeUnknownSync(OrchestratorMcpDelegateTaskInput);
 const decodeDelegateTaskResult = Schema.decodeUnknownSync(OrchestratorMcpDelegateTaskResult);
 const decodeThreadWaitResult = Schema.decodeUnknownSync(OrchestratorMcpThreadWaitResult);
@@ -80,5 +82,65 @@ describe("orchestrator MCP contracts", () => {
         next,
       }).next,
     ).toBe(next);
+  });
+
+  it("decodes JSON-string target.options and create_threads target for Cursor CallDynamicTool", () => {
+    const fromRecord = decodeDelegateTaskInput({
+      task: "Run with xhigh effort.",
+      target: {
+        providerInstanceId: "codex",
+        model: "gpt-6.2-astra",
+        options: '{"reasoningEffort":"xhigh","fastMode":true}',
+      },
+    });
+    expect(fromRecord.target?.options).toEqual([
+      { id: "reasoningEffort", value: "xhigh" },
+      { id: "fastMode", value: true },
+    ]);
+
+    const fromArray = decodeDelegateTaskInput({
+      task: "Run with array options.",
+      target: {
+        providerInstanceId: "cursor",
+        model: "gemini-4-carbon",
+        options: '[{"id":"reasoning_effort","value":"high"}]',
+      },
+    });
+    expect(fromArray.target?.options).toEqual([{ id: "reasoning_effort", value: "high" }]);
+
+    const cleared = decodeDelegateTaskInput({
+      task: "Clear options.",
+      target: { providerInstanceId: "codex", options: "{}" },
+    });
+    expect(cleared.target?.options).toEqual([]);
+
+    expect(() =>
+      decodeDelegateTaskInput({
+        task: "Invalid JSON options.",
+        target: { providerInstanceId: "codex", options: "[true]" },
+      }),
+    ).toThrow();
+    expect(() =>
+      decodeDelegateTaskInput({
+        task: "Malformed JSON options.",
+        target: { providerInstanceId: "codex", options: "not-json" },
+      }),
+    ).toThrow();
+
+    const created = decodeCreateThreadsInput({
+      threads: [
+        {
+          title: "Astra",
+          prompt: "Investigate.",
+          target:
+            '{"providerInstanceId":"codex","model":"gpt-6.2-astra","options":{"reasoningEffort":"xhigh"}}',
+        },
+      ],
+    });
+    expect(created.threads[0]?.target).toEqual({
+      providerInstanceId: "codex",
+      model: "gpt-6.2-astra",
+      options: [{ id: "reasoningEffort", value: "xhigh" }],
+    });
   });
 });
