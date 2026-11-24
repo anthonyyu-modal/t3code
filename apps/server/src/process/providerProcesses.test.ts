@@ -15,6 +15,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../config.ts";
+import * as ProcessLauncher from "./ProcessLauncher.ts";
 import * as ProviderProcesses from "./providerProcesses.ts";
 
 // Real child processes stand in for servers and CLIs; only PIDs captured at spawn are signalled.
@@ -55,7 +56,67 @@ const ownedProcess = Effect.gen(function* () {
   };
 });
 
+// A stand-in for the ProcessLauncher helper: it spawns one provider and reports that provider's PID.
+const launchedProvider = Effect.gen(function* () {
+  const providerPid = yield* Deferred.make<number>();
+  const exited = yield* Deferred.make<void>();
+  const launcher = yield* Effect.acquireRelease(
+    Effect.sync(() => {
+      const launcher = NodeChildProcess.spawn(
+        process.execPath,
+        [
+          "-e",
+          `const child = require("node:child_process").spawn(process.execPath, ["-e", "process.stdin.resume()"], { stdio: ["pipe", "ignore", "ignore"] });
+           process.on("disconnect", () => { child.kill("SIGKILL"); process.exit(); });
+           process.send(child.pid);`,
+        ],
+        { stdio: ["pipe", "ignore", "ignore", "ipc"] },
+      );
+      launcher.once("message", (pid) =>
+        Deferred.doneUnsafe(providerPid, Effect.succeed(Number(pid))),
+      );
+      launcher.once("error", (error) => Deferred.doneUnsafe(providerPid, Effect.die(error)));
+      launcher.once("exit", () => Deferred.doneUnsafe(exited, Effect.void));
+      return launcher;
+    }),
+    (launcher) =>
+      Effect.sync(() => launcher.disconnect()).pipe(Effect.andThen(Deferred.await(exited))),
+  );
+  assert(launcher.pid !== undefined);
+  return { launcherPid: launcher.pid, providerPid: yield* Deferred.await(providerPid) };
+});
+
 describe.runIf(HostProcess.Platform.defaultValue() === "linux")("ProviderProcesses", () => {
+  it.live("registers a provider the ProcessLauncher spawned, and refuses other parents", () =>
+    Effect.gen(function* () {
+      const { launcherPid, providerPid } = yield* launchedProvider;
+      const register = (currentPid: number | undefined) =>
+        Layer.build(ProviderProcesses.layer).pipe(
+          Effect.provideService(ProcessLauncher.ProcessLauncher, {
+            currentPid: Effect.succeed(currentPid),
+          }),
+          Effect.map((context) => {
+            const { register } = Context.get(context, ProviderProcesses.ProviderProcesses);
+            assert(register !== undefined);
+            return () => register(providerPid);
+          }),
+        );
+
+      const viaLauncher = yield* register(launcherPid);
+      expect(viaLauncher).not.toThrow();
+      const viaOther = yield* register(undefined);
+      expect(viaOther).toThrow("Cannot identify spawned provider");
+    }).pipe(
+      Effect.scoped,
+      Effect.provideService(HostProcess.Platform, "linux"),
+      Effect.provide(
+        ServerConfig.layerTest(process.cwd(), { prefix: "t3-launcher-provider-" }).pipe(
+          Layer.provideMerge(NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
   it.live("reaps only recorded CLIs of dead servers before startup completes", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
