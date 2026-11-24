@@ -7,6 +7,11 @@ import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import { ThreadToolkit } from "./toolkits/thread/tools.ts";
 import { ThemeToolkit } from "./toolkits/theme/tools.ts";
+import { WhiteboardToolkit } from "./toolkits/whiteboard/tools.ts";
+
+const decodeWhiteboardEditInput = Schema.decodeUnknownSync(
+  WhiteboardToolkit.tools.whiteboard_edit.parametersSchema,
+);
 
 it("drops JSON noise, merges tagged unions, and keeps null where it is required", () => {
   const Every = Schema.Struct({ ms: Schema.Int });
@@ -103,4 +108,29 @@ it("advertises target.options and modelSelection.options as an object map, not a
     expect(options, tool.name).not.toHaveProperty("anyOf");
     expect(options, tool.name).not.toHaveProperty("items");
   }
+});
+
+it("strips JSON-string fallbacks from delegate_task, create_threads, and whiteboard_edit while decoding them", () => {
+  const delegateOptions = advertisedOptions(OrchestratorToolkit.tools.delegate_task, [
+    "target",
+    "options",
+  ]);
+  expect(delegateOptions).toMatchObject({ type: "object" });
+  expect(delegateOptions).not.toHaveProperty("anyOf");
+
+  const whiteboardSchema = advertisedJsonSchema(WhiteboardToolkit.tools.whiteboard_edit) as {
+    properties: {
+      add: { items: { properties: { points: { type?: string; anyOf?: unknown } } } };
+    };
+  };
+  expect(whiteboardSchema.properties.add.items.properties.points.type).toBe("array");
+  expect(whiteboardSchema.properties.add.items.properties.points.anyOf).toBeUndefined();
+
+  const decodedEdit = decodeWhiteboardEditInput({
+    add: [{ type: "arrow", points: "[[0,0],[120,80]]" }],
+  });
+  expect(decodedEdit.add?.[0]?.points).toEqual([
+    [0, 0],
+    [120, 80],
+  ]);
 });
