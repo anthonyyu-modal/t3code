@@ -685,12 +685,20 @@ it.effect("decodes a JSON-stringified delegate target as the same object", () =>
     };
     yield* callTool("delegate_task", { task, target });
     yield* callTool("delegate_task", { task, target: JSON.stringify(target) });
+    yield* callTool("delegate_task", {
+      task,
+      target: {
+        providerInstanceId: "codex",
+        model: "gpt-6.2-sol",
+        options: JSON.stringify({ reasoningEffort: "medium" }),
+      },
+    });
 
     for (const invalidTarget of ["{model:", '{"model":42}']) {
       const error = yield* Effect.flip(callTool("delegate_task", { task, target: invalidTarget }));
       expect(error).toBeInstanceOf(McpSchema.InvalidParams);
     }
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     expect(calls[0]).toEqual({
       task,
       target: {
@@ -699,6 +707,37 @@ it.effect("decodes a JSON-stringified delegate target as the same object", () =>
       },
     });
     expect(calls[1]).toEqual(calls[0]);
+    expect(calls[2]).toEqual(calls[0]);
+
+    const selection = {
+      instanceId: "codex",
+      model: "gpt-6.2-astra",
+      options: { reasoningEffort: "xhigh" },
+    };
+    yield* callTool("t3_thread_launch", {
+      title: "Launch",
+      scratch: true,
+      modelSelection: {
+        instanceId: "codex",
+        model: "gpt-6.2-astra",
+        options: JSON.stringify(selection.options),
+      },
+    });
+    yield* callTool("t3_thread_launch", {
+      title: "Launch",
+      scratch: true,
+      modelSelection: JSON.stringify(selection),
+    });
+    expect(calls[3]).toEqual({
+      title: "Launch",
+      scratch: true,
+      modelSelection: {
+        instanceId: "codex",
+        model: "gpt-6.2-astra",
+        options: [{ id: "reasoningEffort", value: "xhigh" }],
+      },
+    });
+    expect(calls[4]).toEqual(calls[3]);
   }).pipe(Effect.provide(layerRecordingTools(calls)));
 });
 

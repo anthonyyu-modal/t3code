@@ -1130,6 +1130,10 @@ describe("CursorAdapterV2", () => {
 
       yield* setDeviceAccess(true);
       assert.deepEqual(yield* send(), told(false, true, true));
+      assert.isTrue(
+        sentMessages.at(-1)!.includes("pass nested `options`"),
+        "Cursor MCP sessions receive the JSON-string CallDynamicTool guidance",
+      );
       assert.deepEqual(yield* send(), told(false, false, false));
       yield* send(true);
       assert.deepEqual(

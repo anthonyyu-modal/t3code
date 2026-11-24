@@ -66,9 +66,22 @@ const ProviderOptionSelectionsFromLegacyObject = LegacyProviderOptionSelectionsO
   ),
 );
 
+const ProviderOptionSelectionsObjectOrArray = Schema.Union([
+  Schema.Array(ProviderOptionSelection),
+  ProviderOptionSelectionsFromLegacyObject,
+]);
+
+// Cursor's CallDynamicTool gateway corrupts depth-3 nested objects/arrays on Gemini.
+const ProviderOptionSelectionsFromJsonString = Schema.fromJsonString(
+  ProviderOptionSelectionsObjectOrArray,
+).annotate({
+  description: "JSON-text options. Prefer the object or array form.",
+});
+
 export const ProviderOptionSelections = Schema.Union([
   Schema.Array(ProviderOptionSelection),
   ProviderOptionSelectionsFromLegacyObject,
+  ProviderOptionSelectionsFromJsonString,
 ]);
 export type ProviderOptionSelections = typeof ProviderOptionSelections.Type;
 

@@ -1010,8 +1010,10 @@ interface ActiveCursorTurn {
 
 type CursorTurnUsage = NonNullable<Extract<InteractionUpdate, { type: "turn-ended" }>["usage"]>;
 
-const CURSOR_BACKGROUND_WAIT_INSTRUCTIONS =
-  "To wait for a background shell you started (tests, a build), call `t3_background_wait` with its shell ID or pid before you end your turn. It returns at once, and T3 wakes you when the shell exits. Do not mark work you leave running, or PRs.";
+const CURSOR_BACKGROUND_WAIT_INSTRUCTIONS = [
+  "To wait for a background shell you started (tests, a build), call `t3_background_wait` with its shell ID or pid before you end your turn. It returns at once, and T3 wakes you when the shell exits. Do not mark work you leave running, or PRs.",
+  'When calling T3 MCP tools via `CallDynamicTool`, pass nested `options` (`delegate_task` `target.options`, `t3_thread_launch`/`t3_thread_configure` `modelSelection.options`), `create_threads` `target`, and `whiteboard_edit` `points` as JSON strings (for example `options: "{\\"reasoningEffort\\":\\"xhigh\\"}"`) because Cursor corrupts depth-3 objects and nested arrays.',
+].join("\n\n");
 
 const BACKGROUND_SHELL_DETAIL_COMMAND_MAX_LENGTH = 200;
 
@@ -2893,10 +2895,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
               ? undefined
               : yield* loadCursorProjectInstructions({
                   cwd: turnInput.runtimePolicy.cwd,
-                  includeRootFile: !cursorLoadsProjectConfig(
-                    turnInput.runtimePolicy,
-                    platform,
-                  ),
+                  includeRootFile: !cursorLoadsProjectConfig(turnInput.runtimePolicy, platform),
                   environment: adapterOptions.environment,
                 }).pipe(
                   Effect.provideService(FileSystem.FileSystem, fileSystem),
