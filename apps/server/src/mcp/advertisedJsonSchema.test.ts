@@ -3,7 +3,13 @@ import * as Schema from "effect/Schema";
 import { Tool } from "effect/ai";
 
 import { advertisedJsonSchema } from "./advertisedJsonSchema.ts";
+import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
 import { ThemeToolkit } from "./toolkits/theme/tools.ts";
+import { WhiteboardToolkit } from "./toolkits/whiteboard/tools.ts";
+
+const decodeWhiteboardEditInput = Schema.decodeUnknownSync(
+  WhiteboardToolkit.tools.whiteboard_edit.parametersSchema,
+);
 
 it("drops JSON noise, merges tagged unions, and keeps null where it is required", () => {
   const Every = Schema.Struct({ ms: Schema.Int });
@@ -58,4 +64,30 @@ it("advertises only string enum values, which Gemini requires", () => {
   collect(advertisedJsonSchema(ThemeToolkit.tools.t3_theme_set));
 
   expect(enumValues.filter((value) => typeof value !== "string")).toEqual([]);
+});
+
+it("strips JSON-string fallbacks from delegate_task, create_threads, and whiteboard_edit while decoding them", () => {
+  const delegateSchema = advertisedJsonSchema(OrchestratorToolkit.tools.delegate_task) as {
+    properties: { target: { properties: { options: { anyOf?: Array<{ type?: string }> } } } };
+  };
+  const optionTypes = delegateSchema.properties.target.properties.options.anyOf?.map(
+    (branch) => branch.type,
+  );
+  expect(optionTypes).toEqual(["array", "object"]);
+
+  const whiteboardSchema = advertisedJsonSchema(WhiteboardToolkit.tools.whiteboard_edit) as {
+    properties: {
+      add: { items: { properties: { points: { type?: string; anyOf?: unknown } } } };
+    };
+  };
+  expect(whiteboardSchema.properties.add.items.properties.points.type).toBe("array");
+  expect(whiteboardSchema.properties.add.items.properties.points.anyOf).toBeUndefined();
+
+  const decodedEdit = decodeWhiteboardEditInput({
+    add: [{ type: "arrow", points: "[[0,0],[120,80]]" }],
+  });
+  expect(decodedEdit.add?.[0]?.points).toEqual([
+    [0, 0],
+    [120, 80],
+  ]);
 });

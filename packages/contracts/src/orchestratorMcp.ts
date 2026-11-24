@@ -89,9 +89,22 @@ const OrchestratorMcpTargetOptionsFromRecord = Schema.Record(
   ),
 );
 
+const OrchestratorMcpTargetOptionsObjectOrArray = Schema.Union([
+  Schema.Array(ProviderOptionSelection),
+  OrchestratorMcpTargetOptionsFromRecord,
+]);
+
+// Cursor's CallDynamicTool gateway corrupts depth-3 nested objects/arrays on Gemini.
+const OrchestratorMcpTargetOptionsFromJsonString = Schema.fromJsonString(
+  OrchestratorMcpTargetOptionsObjectOrArray,
+).annotate({
+  description: "JSON-text options. Prefer the object or array form.",
+});
+
 export const OrchestratorMcpTargetOptions = Schema.Union([
   Schema.Array(ProviderOptionSelection),
   OrchestratorMcpTargetOptionsFromRecord,
+  OrchestratorMcpTargetOptionsFromJsonString,
 ]);
 export type OrchestratorMcpTargetOptions = typeof OrchestratorMcpTargetOptions.Type;
 
@@ -168,12 +181,15 @@ export const OrchestratorMcpTerminalDelegatedTaskStatus = Schema.Literals([
 export type OrchestratorMcpTerminalDelegatedTaskStatus =
   typeof OrchestratorMcpTerminalDelegatedTaskStatus.Type;
 
+const OrchestratorMcpTargetInput = Schema.Union([
+  OrchestratorMcpTarget,
+  Schema.fromJsonString(OrchestratorMcpTarget),
+]);
+
 export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   task: OrchestratorMcpPrompt,
   // Some providers send the whole target object as JSON text.
-  target: Schema.optional(
-    Schema.Union([OrchestratorMcpTarget, Schema.fromJsonString(OrchestratorMcpTarget)]),
-  ),
+  target: Schema.optional(OrchestratorMcpTargetInput),
   title: Schema.optional(OrchestratorMcpTitle),
   role: Schema.optional(OrchestratorMcpTaskRole),
   isolation: Schema.optional(
@@ -278,7 +294,7 @@ export type OrchestratorMcpTaskCancelResult = typeof OrchestratorMcpTaskCancelRe
 export const OrchestratorMcpCreateThreadRequest = Schema.Struct({
   prompt: Schema.optional(OrchestratorMcpPrompt),
   title: Schema.optional(OrchestratorMcpTitle),
-  target: Schema.optional(OrchestratorMcpTarget),
+  target: Schema.optional(OrchestratorMcpTargetInput),
   runtimeMode: Schema.optional(OrchestratorMcpRuntimeMode),
   interactionMode: Schema.optional(OrchestratorMcpInteractionMode),
 });

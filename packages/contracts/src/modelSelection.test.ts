@@ -84,3 +84,25 @@ it.effect(
       assert.deepStrictEqual(encoded.options, decoded.options);
     }),
 );
+
+it.effect("decodes JSON-string options (object and array) and re-encodes canonically", () =>
+  Effect.gen(function* () {
+    const fromRecord = yield* decodeModelSelection({
+      instanceId: "codex",
+      model: "gpt-6.2-astra",
+      options: '{"reasoningEffort":"xhigh","fastMode":true}',
+    });
+    assert.deepStrictEqual(fromRecord.options, [
+      { id: "reasoningEffort", value: "xhigh" },
+      { id: "fastMode", value: true },
+    ]);
+    assert.deepStrictEqual((yield* encodeModelSelection(fromRecord)).options, fromRecord.options);
+
+    const fromArray = yield* decodeModelSelection({
+      instanceId: "cursor",
+      model: "gemini-4-carbon",
+      options: '[{"id":"reasoning_effort","value":"high"}]',
+    });
+    assert.deepStrictEqual(fromArray.options, [{ id: "reasoning_effort", value: "high" }]);
+  }),
+);

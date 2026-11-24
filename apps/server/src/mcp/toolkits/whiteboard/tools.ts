@@ -28,6 +28,9 @@ const shared = {
 };
 
 const Point = Schema.Tuple([Schema.Finite, Schema.Finite]);
+const PointList = Schema.Array(Point);
+// Cursor's CallDynamicTool gateway corrupts nested arrays like [[x, y], ...] on Gemini.
+const PointListInput = Schema.Union([PointList, Schema.fromJsonString(PointList)]);
 const Arrowhead = Schema.Literals(WHITEBOARD_ARROWHEADS);
 
 const Style = {
@@ -173,7 +176,7 @@ const WhiteboardEditTool = Tool.make("whiteboard_edit", {
           ),
           to: Schema.optional(Schema.String),
           points: Schema.optional(
-            Schema.Array(Point).annotate({
+            PointListInput.annotate({
               description: "Arrow or line with free ends: absolute [x, y] points.",
             }),
           ),
