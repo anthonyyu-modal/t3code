@@ -4,6 +4,7 @@ import {
   breadcrumbPathOf,
   fileBreadcrumbChildren,
   fileBreadcrumbs,
+  fileClipboardPaths,
   isListableHostFolder,
   retainedBreadcrumbTrail,
 } from "./filePath";
@@ -101,5 +102,30 @@ describe("retainedBreadcrumbTrail", () => {
     ["\\\\nas\\share\\docs\\notes", "\\\\nas\\share", "\\\\nas\\share\\docs\\notes"],
   ])("from trail %j to %j keeps %j", (trail, path, expected) => {
     expect(retainedBreadcrumbTrail(trail, path)).toBe(expected);
+  });
+});
+
+describe("fileClipboardPaths", () => {
+  it("copies host paths in full and workspace paths in full or relative to the workspace", () => {
+    expect(fileClipboardPaths("src/agents/descriptor.py", "/home/me/repo")).toEqual({
+      full: "/home/me/repo/src/agents/descriptor.py",
+      relative: "src/agents/descriptor.py",
+    });
+    expect(fileClipboardPaths("", "/home/me/repo")).toEqual({
+      full: "/home/me/repo",
+      relative: null,
+    });
+    expect(fileClipboardPaths("/tmp/report.md", "/home/me/repo")).toEqual({
+      full: "/tmp/report.md",
+      relative: null,
+    });
+    expect(fileClipboardPaths("~/.claude/CLAUDE.md", "/home/me/repo")).toEqual({
+      full: "/home/me/.claude/CLAUDE.md",
+      relative: null,
+    });
+    expect(fileClipboardPaths("src/index.ts", "C:\\repo")).toEqual({
+      full: "C:\\repo\\src\\index.ts",
+      relative: "src\\index.ts",
+    });
   });
 });
