@@ -1,4 +1,6 @@
+import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-actions";
 import type { ProjectEntry } from "@t3tools/contracts";
+import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { isWindowsAbsolutePath, isHostPath } from "@t3tools/shared/path";
 
 export interface FileBreadcrumb {
@@ -93,4 +95,19 @@ export function fileBreadcrumbParent(directoryPath: string): string | null {
   if (!directoryPath) return null;
   const separatorIndex = directoryPath.lastIndexOf("/");
   return separatorIndex === -1 ? "" : directoryPath.slice(0, separatorIndex);
+}
+
+/**
+ * The clipboard spellings of a file view path, where `""` is the workspace root.
+ * Only paths under the workspace have a relative spelling.
+ */
+export function fileClipboardPaths(
+  path: string,
+  cwd: string,
+): { readonly full: string; readonly relative: string | null } {
+  const full = path === "" ? cwd : resolvePathLinkTarget(path, cwd);
+  return {
+    full: formatFilePathForClipboard(full),
+    relative: path === "" || isHostPath(path) ? null : formatFilePathForClipboard(path, full),
+  };
 }

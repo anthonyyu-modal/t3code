@@ -101,6 +101,7 @@ import { PreviewImage } from "./PreviewImage";
 import FileBrowserPanel from "./FileBrowserPanel";
 import { FileExplorerPane } from "./FileExplorerPane";
 import { FileBreadcrumbs } from "./FileBreadcrumbs";
+import { FilePathCopyAction } from "./FilePathCopy";
 import { breadcrumbPathOf, retainedBreadcrumbTrail, trailChildOf } from "./filePath";
 import { ChunkedMarkdown } from "./ChunkedMarkdown";
 import { splitMarkdown } from "@t3tools/shared/markdownChunks";
@@ -1654,6 +1655,7 @@ export default function FilePreviewPanel({
               />
             </div>
           </ScrollArea>
+          <FilePathCopyAction path={breadcrumbPath} cwd={cwd} />
           {absolutePath &&
           (environmentId === primaryEnvironmentId ||
             environmentId === hostEnvironmentId ||
