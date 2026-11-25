@@ -235,6 +235,7 @@ export const make = Effect.gen(function* () {
       issueLinkedThreads: true,
       issueTrackerAccounts: true,
       sideChats: true,
+      threadHotLinks: true,
       vcsBranchStatus: true,
       inlineMessageContext: true,
       requiredWorktreeBootstrap: true,
