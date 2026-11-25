@@ -3,6 +3,7 @@ import {
   ProviderDriverKind,
   settingsSecretLiteral,
   type ServerProviderModel,
+  TextGenerationError,
 } from "@t3tools/contracts";
 import { OpenCodeSettings } from "../settings.ts";
 import * as Cause from "effect/Cause";
@@ -229,6 +230,25 @@ function selectOpenCodeRuntimeTextGeneration(
       byOpenCodeRuntime(resolve, {
         v1: v1.generateThreadTitle(input),
         v2: v2.generateThreadTitle(input),
+      }),
+    generateThreadHotLinks: (input) =>
+      byOpenCodeRuntime(resolve, {
+        v1: v1.generateThreadHotLinks
+          ? v1.generateThreadHotLinks(input)
+          : Effect.fail(
+              new TextGenerationError({
+                operation: "generateThreadHotLinks",
+                detail: "OpenCode v1 does not support hot link extraction.",
+              }),
+            ),
+        v2: v2.generateThreadHotLinks
+          ? v2.generateThreadHotLinks(input)
+          : Effect.fail(
+              new TextGenerationError({
+                operation: "generateThreadHotLinks",
+                detail: "OpenCode v2 does not support hot link extraction.",
+              }),
+            ),
       }),
     generateReviewGuide: (input) =>
       byOpenCodeRuntime(resolve, {

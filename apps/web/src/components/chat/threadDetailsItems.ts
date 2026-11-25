@@ -14,6 +14,12 @@ export const THREAD_DETAILS_ITEMS = [
     defaultVisible: true,
   },
   {
+    id: "hotLinks",
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- anthonyyu-modal/t3code's own copy stays English (FORK.md)
+    label: "Hot links",
+    defaultVisible: true,
+  },
+  {
     id: "servers",
     label: msg("Servers", { $context: "thread details item: running dev servers" }),
     defaultVisible: true,

@@ -31,6 +31,8 @@ export type {
   PrContentGenerationResult,
   ReviewGuideGenerationInput,
   ReviewGuideGenerationResult,
+  ThreadHotLinksGenerationInput,
+  ThreadHotLinksGenerationResult,
   ThreadTitleGenerationInput,
   ThreadTitleGenerationResult,
   TranscriptionPostProcessingInput,
@@ -46,6 +48,7 @@ type TextGenerationOp =
   | "generatePrContent"
   | "generateBranchName"
   | "generateThreadTitle"
+  | "generateThreadHotLinks"
   | "generateReviewGuide"
   | "generateTranscriptionPostProcessing";
 
@@ -238,6 +241,22 @@ export const make = Effect.gen(function* () {
               modelSelection,
             });
           }),
+      );
+    }),
+    generateThreadHotLinks: Effect.fn("TextGeneration.generateThreadHotLinks")(function (input) {
+      return generate(
+        "generateThreadHotLinks",
+        input.modelSelection,
+        input.projectId,
+        (service, modelSelection) =>
+          service.generateThreadHotLinks
+            ? service.generateThreadHotLinks({ ...input, modelSelection })
+            : Effect.fail(
+                new TextGenerationError({
+                  operation: "generateThreadHotLinks",
+                  detail: `Provider '${modelSelection.instanceId}' does not support hot link extraction.`,
+                }),
+              ),
       );
     }),
   });

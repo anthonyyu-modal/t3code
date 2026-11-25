@@ -4120,6 +4120,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   getThreadFamily: "orchestration.getThreadFamily",
   getThreadTitles: "orchestration.getThreadTitles",
   getThreadLinkMetadata: "orchestration.getThreadLinkMetadata",
+  getThreadHotLinks: "orchestration.getThreadHotLinks",
   getWorktreeThreadIds: "orchestration.getWorktreeThreadIds",
   getOlderSettledThreads: "orchestration.getOlderSettledThreads",
   getThreadProjection: "orchestration.getThreadProjection",
@@ -4253,6 +4254,37 @@ export const OrchestrationV2GetThreadFamilyInput = Schema.Struct({
   threadId: ThreadId,
 });
 export type OrchestrationV2GetThreadFamilyInput = typeof OrchestrationV2GetThreadFamilyInput.Type;
+
+export const ThreadHotLinkKind = Schema.Literals([
+  "plain",
+  "slack",
+  "github",
+  "linear",
+  "notion",
+  "datadog",
+  "modal",
+  "link",
+]);
+export type ThreadHotLinkKind = typeof ThreadHotLinkKind.Type;
+
+export const ThreadHotLink = Schema.Struct({
+  url: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  kind: ThreadHotLinkKind,
+});
+export type ThreadHotLink = typeof ThreadHotLink.Type;
+
+export const OrchestrationV2GetThreadHotLinksInput = Schema.Struct({
+  threadId: ThreadId,
+  refresh: Schema.optional(Schema.Boolean),
+});
+export type OrchestrationV2GetThreadHotLinksInput =
+  typeof OrchestrationV2GetThreadHotLinksInput.Type;
+
+export const OrchestrationV2ThreadHotLinks = Schema.Struct({
+  links: Schema.Array(ThreadHotLink),
+});
+export type OrchestrationV2ThreadHotLinks = typeof OrchestrationV2ThreadHotLinks.Type;
 
 /**
  * The active threads that share the requested thread's `lineage.rootThreadId`: the root, its
@@ -4810,6 +4842,10 @@ export const OrchestrationV2RpcSchemas = {
   getThreadLinkMetadata: {
     input: OrchestrationV2GetThreadTitlesInput,
     output: Schema.Record(ThreadId, OrchestrationV2ThreadLinkMetadata),
+  },
+  getThreadHotLinks: {
+    input: OrchestrationV2GetThreadHotLinksInput,
+    output: OrchestrationV2ThreadHotLinks,
   },
   getWorktreeThreadIds: {
     input: OrchestrationV2GetWorktreeThreadIdsInput,
