@@ -29,6 +29,7 @@ import {
   fileBreadcrumbs,
   isListableHostFolder,
 } from "./filePath";
+import { useCopyPathContextMenu } from "./FilePathCopy";
 import { useProjectEntriesQuery } from "./projectFilesQueryState";
 
 interface FileBreadcrumbsProps {
@@ -313,6 +314,7 @@ export function FileBreadcrumbs(props: FileBreadcrumbsProps) {
   const currentPath = breadcrumbPathOf(props.relativePath);
   const currentIndex = breadcrumbs.findIndex((crumb) => crumb.path === currentPath);
   const gt = useGT();
+  const showCopyPathMenu = useCopyPathContextMenu(props.cwd);
 
   return (
     <nav aria-label={gt("File path")} className="flex h-full">
@@ -325,6 +327,7 @@ export function FileBreadcrumbs(props: FileBreadcrumbsProps) {
               className="flex min-w-0 shrink-0 items-center"
               data-file-crumb
               data-current-file-crumb={current}
+              onContextMenu={(event) => showCopyPathMenu(event, crumb.path)}
             >
               {current ? (
                 <span aria-current="page">
