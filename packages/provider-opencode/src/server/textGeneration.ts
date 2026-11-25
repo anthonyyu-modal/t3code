@@ -23,6 +23,7 @@ const OpenCodeTextGenerationOperation = Schema.Literals([
   "generatePrContent",
   "generateBranchName",
   "generateThreadTitle",
+  "generateThreadHotLinks",
   "generateReviewGuide",
   "generateTranscriptionPostProcessing",
 ]);

@@ -32,6 +32,7 @@ import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
+  buildThreadHotLinksPrompt,
   buildThreadTitlePrompt,
 } from "@t3tools/provider-core/server/textGenerationPrompts";
 import {
@@ -383,6 +384,15 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
     });
     return { title: yield* generatedThreadTitle(generated.title) };
   });
+  const generateThreadHotLinks: NonNullable<ProviderTextGeneration["generateThreadHotLinks"]> =
+    Effect.fn("MuseTextGeneration.generateThreadHotLinks")(function* (input) {
+      const generated = yield* runMuseJson({
+        operation: "generateThreadHotLinks",
+        ...buildThreadHotLinksPrompt(input),
+        modelSelection: input.modelSelection,
+      });
+      return { links: generated.links };
+    });
   const generateTranscriptionPostProcessing: ProviderTextGeneration["generateTranscriptionPostProcessing"] =
     Effect.fn("MuseTextGeneration.generateTranscriptionPostProcessing")(function* (input) {
       return yield* runMuseJson({
@@ -399,6 +409,7 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateThreadHotLinks,
     generateReviewGuide,
     generateTranscriptionPostProcessing,
   } satisfies ProviderTextGeneration;

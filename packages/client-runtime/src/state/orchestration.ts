@@ -200,6 +200,23 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
       staleTimeMs: 0,
       idleTtlMs: 0,
     }),
+    threadHotLinks: createEnvironmentQueryAtomFamily(runtime, {
+      label: "environment-data:orchestration:thread-hot-links",
+      staleTimeMs: 300_000,
+      idleTtlMs: 300_000,
+      execute: Effect.fn("orchestration.threadHotLinks")(function* (input: {
+        readonly threadId: ThreadId;
+        readonly messageRevision: string | null;
+      }) {
+        return yield* request(ORCHESTRATION_V2_WS_METHODS.getThreadHotLinks, {
+          threadId: input.threadId,
+        });
+      }),
+    }),
+    refreshThreadHotLinks: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:orchestration:refresh-thread-hot-links",
+      tag: ORCHESTRATION_V2_WS_METHODS.getThreadHotLinks,
+    }),
     stopWorkflow: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:orchestration:stop-workflow",
       tag: ORCHESTRATION_V2_WS_METHODS.stopWorkflow,

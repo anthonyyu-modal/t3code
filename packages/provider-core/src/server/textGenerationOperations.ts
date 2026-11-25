@@ -11,6 +11,7 @@ import {
   buildCommitMessagePrompt,
   buildPrContentPrompt,
   buildReviewGuidePrompt,
+  buildThreadHotLinksPrompt,
   buildThreadTitlePrompt,
 } from "./textGenerationPrompts.ts";
 import {
@@ -178,6 +179,20 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     };
   });
 
+  const generateThreadHotLinks: NonNullable<ProviderTextGeneration["generateThreadHotLinks"]> =
+    Effect.fn(`${name}.generateThreadHotLinks`)(function* (input) {
+      const generated = yield* run({
+        operation: "generateThreadHotLinks",
+        cwd: input.cwd,
+        modelSelection: input.modelSelection,
+        ...buildThreadHotLinksPrompt({
+          userMessages: input.userMessages,
+          candidateUrls: input.candidateUrls,
+        }),
+      });
+      return { links: generated.links };
+    });
+
   const generateTranscriptionPostProcessing: ProviderTextGeneration["generateTranscriptionPostProcessing"] =
     Effect.fn(`${name}.generateTranscriptionPostProcessing`)(function* (input) {
       return yield* run({
@@ -206,6 +221,7 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    generateThreadHotLinks,
     generateReviewGuide,
     generateTranscriptionPostProcessing,
   } satisfies ProviderTextGeneration;

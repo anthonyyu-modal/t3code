@@ -219,7 +219,7 @@ export const makeClaudeTextGeneration = Effect.fn("makeClaudeTextGeneration")(fu
     S["DecodingServices"] | Scope.Scope
   > {
     const workingDirectory =
-      operation === "generateThreadTitle"
+      operation === "generateThreadTitle" || operation === "generateThreadHotLinks"
         ? yield* fileSystem
             .makeTempDirectoryScoped({ prefix: "t3code-claude-title-" })
             .pipe(
