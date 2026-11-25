@@ -1,7 +1,7 @@
 import { T, useGT, useMessages, Var } from "gt-react";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
-import type { FileDiffContentsLoader, FileDiffMetadata } from "@pierre/diffs";
+import type { FileDiffContentsLoader, FileDiffMetadata, PostRenderPhase } from "@pierre/diffs";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -32,6 +32,10 @@ import * as Schema from "effect/Schema";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { useCodeViewFileReveal } from "./diffs/useCodeViewFileReveal";
 import { useCodeViewScrollRestore } from "./diffs/useCodeViewScrollRestore";
+import {
+  type RenderedCodeViewItem,
+  usePartialDiffHydration,
+} from "./diffs/usePartialDiffHydration";
 import { useFilesystemReadAccess } from "~/state/filesystem";
 import { useOpenInPreferredEditor } from "../editorPreferences";
 import { useFileContextMenuHandler } from "../fileContextMenu";
@@ -659,12 +663,15 @@ export default function DiffPanel({
           cacheKey: selectedGitSource.diffHash,
         })
       : undefined;
-  const loadDiffFiles: FileDiffContentsLoader = useStableCallback(async (fileDiff) => {
-    if (!currentLoadDiffFiles) {
-      throw new Error(gt("Diff file contents are unavailable for this selection."));
-    }
-    return currentLoadDiffFiles(fileDiff);
-  });
+  const partialDiffHydration = usePartialDiffHydration();
+  const loadDiffFiles: FileDiffContentsLoader = useStableCallback(
+    partialDiffHydration.loader(async (fileDiff) => {
+      if (!currentLoadDiffFiles) {
+        throw new Error(gt("Diff file contents are unavailable for this selection."));
+      }
+      return currentLoadDiffFiles(fileDiff);
+    }),
+  );
   const canSelectBranchBase = canReadFiles && canRefreshGitDiff && selectedGitScope === "branch";
   const branchRefsCwd = branchDiffPreview.data?.cwd ?? gitCwd;
   const localBranchRefs = useEnvironmentQuery(
@@ -818,10 +825,18 @@ export default function DiffPanel({
     codeViewScroll.attach(handle);
     codeViewReveal.attach(handle);
   });
-  const flushCodeView = useStableCallback(() => {
-    codeViewScroll.flush();
-    codeViewReveal.flush();
-  });
+  const handleCodeViewPostRender = useStableCallback(
+    (
+      _node: HTMLElement,
+      _instance: object,
+      phase: PostRenderPhase,
+      rendered: RenderedCodeViewItem,
+    ) => {
+      codeViewScroll.flush();
+      codeViewReveal.flush();
+      if (currentLoadDiffFiles) partialDiffHydration.rendered(phase, rendered);
+    },
+  );
   const revealDiffFile = (filePath: string) => {
     const index = renderableFileEntries.findIndex(
       (candidate) => resolveFileDiffPath(candidate.fileDiff) === filePath,
@@ -1772,7 +1787,7 @@ export default function DiffPanel({
                       preferredHighlighter: PREFERRED_HIGHLIGHTER,
                       themeType: resolvedTheme as DiffThemeType,
                       stickyHeaders: true,
-                      onPostRender: flushCodeView,
+                      onPostRender: handleCodeViewPostRender,
                       ...(currentLoadDiffFiles ? { loadDiffFiles } : {}),
                     }}
                   />
