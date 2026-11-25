@@ -1,3 +1,4 @@
+import type { FileDiffContentsLoader, FileDiffMetadata, PostRenderPhase } from "@pierre/diffs";
 import type { CodeViewHandle } from "@pierre/diffs/react";
 import { WorkerPoolManager } from "@pierre/diffs/worker";
 import { useState, type Ref } from "react";
@@ -14,6 +15,7 @@ vi.mock(import("../../hooks/useTheme"), async (original) => ({
 import { buildFileDiffEntries, getRenderablePatch } from "../../lib/diffRendering";
 import { getDiffHeaderClickAction } from "./diffHeaderClick";
 import { StyledDiffCodeView } from "./StyledDiffCodeView";
+import { type RenderedCodeViewItem, usePartialDiffHydration } from "./usePartialDiffHydration";
 
 /** Records each worker pool's initialization so the test can wait for highlighting. */
 function captureWorkerPools() {
@@ -199,4 +201,89 @@ it("tells a screen reader which lines were removed and which were added", async 
     const text = await screenReaderText();
     expect(text).toContain("export const name = 1;Removedconst limit = 10;Addedconst limit = 20;");
   });
+});
+
+function HydratedDiff({
+  fileDiff,
+  loadDiffFiles,
+}: {
+  fileDiff: FileDiffMetadata;
+  loadDiffFiles: FileDiffContentsLoader;
+}) {
+  const hydration = usePartialDiffHydration();
+  return (
+    <StyledDiffCodeView
+      className="h-[600px] w-[800px]"
+      items={[{ type: "diff", id: "service.py", fileDiff, version: 1 }]}
+      options={{
+        theme: "pierre-dark",
+        diffStyle: "unified",
+        loadDiffFiles: hydration.loader(loadDiffFiles),
+        onPostRender: (
+          _node: HTMLElement,
+          _instance: object,
+          phase: PostRenderPhase,
+          rendered: RenderedCodeViewItem,
+        ) => hydration.rendered(phase, rendered),
+      }}
+    />
+  );
+}
+
+// Pierre tokenizes a patch-only hunk by itself, so the docstring's closing quotes open a string.
+it("highlights the code after a docstring whose opening the patch leaves out", async () => {
+  const lines = (compute: string) =>
+    [
+      "def fetch():",
+      '    """Fetch a value.',
+      ...Array.from({ length: 8 }, (_, index) => `    Docstring line ${index + 1}.`),
+      '    """',
+      `    value = compute(${compute})`,
+      "    return value",
+      "",
+    ].join("\n");
+  const parsed = getRenderablePatch(
+    [
+      "diff --git a/service.py b/service.py",
+      "--- a/service.py",
+      "+++ b/service.py",
+      "@@ -10,4 +10,4 @@ def fetch():",
+      "     Docstring line 8.",
+      '     """',
+      "-    value = compute(1)",
+      "+    value = compute(2)",
+      "     return value",
+      "",
+    ].join("\n"),
+  );
+  if (parsed?.kind !== "files") throw new Error("Expected file diffs");
+  using captured = captureWorkerPools();
+  await using _screen = await render(
+    <HydratedDiff
+      fileDiff={parsed.files[0]!}
+      loadDiffFiles={async () => ({
+        oldFile: { name: "service.py", contents: lines("1") },
+        newFile: { name: "service.py", contents: lines("2") },
+      })}
+    />,
+    // This viewer fixture does not navigate or read router state.
+    { router: false },
+  );
+  await act(async () => {
+    await Promise.all(captured.pools.values());
+  });
+
+  const tokenColors = () => {
+    const line = [
+      ...(document.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]") ??
+        []),
+    ].find((candidate) => candidate.textContent.includes("return value"));
+    return new Set(
+      [...(line?.querySelectorAll("span") ?? [])]
+        .filter((span) => span.children.length === 0 && span.textContent.trim() !== "")
+        .map((span) => getComputedStyle(span).color),
+    );
+  };
+  // `return` and `value` share one colour only while the line is read as part of a string.
+  await vi.waitFor(() => expect(tokenColors().size).toBeGreaterThan(1));
 });
