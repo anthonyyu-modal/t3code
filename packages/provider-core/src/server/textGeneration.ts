@@ -79,6 +79,21 @@ export interface ThreadTitleGenerationResult {
   needsRefinement?: boolean | undefined;
 }
 
+export interface ThreadHotLinksGenerationInput {
+  cwd: string;
+  userMessages: string;
+  candidateUrls: ReadonlyArray<string>;
+  modelSelection: ModelSelection;
+  projectId?: ProjectId | null | undefined;
+}
+
+export interface ThreadHotLinksGenerationResult {
+  links: ReadonlyArray<{
+    readonly url: string;
+    readonly label: string;
+  }>;
+}
+
 export interface ReviewGuideStackLayer {
   readonly number: number;
   readonly title: string | null;
@@ -138,6 +153,10 @@ export interface ProviderTextGeneration {
   readonly generateThreadTitle: (
     input: ThreadTitleGenerationInput,
   ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
+
+  readonly generateThreadHotLinks?: (
+    input: ThreadHotLinksGenerationInput,
+  ) => Effect.Effect<ThreadHotLinksGenerationResult, TextGenerationError>;
 
   readonly generateReviewGuide: (
     input: ReviewGuideGenerationInput,
